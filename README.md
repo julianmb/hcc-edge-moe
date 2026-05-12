@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <b>Run 400B-parameter MoE language models on two $2,600 AMD Strix Halo systems connected by USB4 — no datacenter required.</b>
+  <b>Run 400B-parameter MoE language models on two $2,600 ClawRig (Strix Halo) systems connected by USB4 — no datacenter required.</b>
   <br>
   <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade Strix Halo workstation with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference
 </p>
@@ -26,7 +26,7 @@ Large language models need enormous amounts of memory.
 | Mac Studio (M2 Ultra, 192 GB) | 192 GB | $12,000 | 240 W | ⚠️ Tight |
 | DGX A100 (used) | 320 GB HBM2e | $80K–$120K | 6,500 W | ✅ Datacenter only |
 | DGX H100 (new) | 640 GB HBM3 | $210K–$307K | 10,200 W | ✅ Datacenter only |
-| **2× Strix Halo + HCC** | **256 GB LPDDR5x** | **$5,200** | **240 W** | **✅ Desk** |
+| **2× ClawRig (Strix Halo) + HCC** | **256 GB LPDDR5x** | **$5,200** | **240 W** | **✅ Desk** |
 
 A single 380B-parameter MoE model needs ~161 GB (UD-Q3KM quantized). That doesn't fit on any consumer GPU. The traditional answer is an $100K+ DGX system in a datacenter.
 
@@ -127,11 +127,11 @@ Verified on **AMD Ryzen AI MAX+ 395** (Framework Desktop, 128 GB LPDDR5x-8000).
 
 ## Cost Comparison
 
-The economics are the point. Two Strix Halo systems at **$2,600 each**:
+The economics are the point. Two ClawRig (Strix Halo) systems at **$2,600 each**:
 
 | Platform | CAPEX | Power | $/GB | Annual power cost |
 |---|---|---|---|---|
-| **2× Strix Halo + HCC** | **$5,200** | **240 W** | **$20.31** | **$315** |
+| **2× ClawRig (Strix Halo) + HCC** | **$5,200** | **240 W** | **$20.31** | **$315** |
 | DGX A100 (used) | $80K–$120K | 6,500 W | $312 | $8,541 |
 | DGX H100 (new) | $210K–$307K | 10,200 W | $391 | $13,402 |
 | Mac Studio (2× M2 Ultra) | $12,000 | 240 W | $31.25 | $315 |
@@ -252,5 +252,5 @@ cargo build --release  # Zero errors
 ---
 
 <p align="center">
-  <i>Two $2,600 laptops. One USB4 cable. Zero datacenters.</i>
+  <i>Two $2,600 ClawRig units. One USB4 cable. Zero datacenters.</i>
 </p>

@@ -6,11 +6,12 @@
   <img src="https://img.shields.io/badge/ROCm-7.2.3-8B0000?style=flat-square" alt="ROCm">
   <img src="https://img.shields.io/badge/Strix_Halo-Ryzen_AI_MAX%2B_395-blue?style=flat-square" alt="Strix Halo">
   <img src="https://img.shields.io/badge/tests-27%2F27-green?style=flat-square" alt="Tests">
-  <img src="https://img.shields.io/badge/license-MIT-brightgreen?style=flat-square" alt="License">
 </p>
 
 <p align="center">
   <b>Run 400B-parameter MoE language models on two $2,600 AMD laptops connected by USB4 — no datacenter required.</b>
+  <br>
+  <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a> Strix Halo hardware
 </p>
 
 ---

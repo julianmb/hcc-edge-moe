@@ -1,6 +1,6 @@
 # Heterogeneous Compute Cascade (HCC)
 
-[![DOI](https://zenodo.org/badge/doi/10.5281/zenodo.19562855.svg)](https://doi.org/10.5281/zenodo.19562855)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.19562855-blue)](https://doi.org/10.5281/zenodo.19562855)
 ![Rust](https://img.shields.io/badge/rust-1.89%2B-orange)
 ![ROCm](https://img.shields.io/badge/ROCm-7.2.3-green)
 ![Tests](https://img.shields.io/badge/tests-27%2F27-green)

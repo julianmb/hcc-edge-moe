@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <b>Run 400B-parameter MoE language models on two $2,600 AMD laptops connected by USB4 — no datacenter required.</b>
+  <b>Run 400B-parameter MoE language models on two $2,600 AMD Strix Halo systems connected by USB4 — no datacenter required.</b>
   <br>
-  <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a> Strix Halo hardware
+  <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade Strix Halo workstation with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference
 </p>
 
 ---

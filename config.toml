@@ -45,3 +45,17 @@ qjl_correct = true
 max_sessions = 9
 max_context = 200000
 static_batch = 1
+
+[backend]
+inference_engine = "llamacpp-rpc"
+rpc_port = 50052
+model_path = "/models/model.gguf"
+hip_device = 0
+hipblaslt = true
+rocm_version = "7.2.3"
+pipeline = "hcc"
+
+[dovetail]
+enabled = false
+draft_depth = 4
+dgf_alpha = 0.3

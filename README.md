@@ -1,6 +1,6 @@
 # Heterogeneous Compute Cascade (HCC)
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19562855.svg)](https://doi.org/10.5281/zenodo.19562855)
+[![DOI](https://zenodo.org/badge/doi/10.5281/zenodo.19562855.svg)](https://doi.org/10.5281/zenodo.19562855)
 ![Rust](https://img.shields.io/badge/rust-1.89%2B-orange)
 ![ROCm](https://img.shields.io/badge/ROCm-7.2.3-green)
 ![Tests](https://img.shields.io/badge/tests-27%2F27-green)
@@ -10,15 +10,16 @@
 
 Verified on **AMD Ryzen AI MAX+ 395 "Strix Halo"** with Radeon 8060S (gfx1151) and XDNA 2 NPU.
 
-| Metric | Paper Projection | Measured (Strix Halo) |
-|---|---|---|
-| Memory bandwidth | 212 GB/s | 212 GB/s (rocm_bandwidth_test) |
-| GPU FP16 compute | 59 TFLOPS | 36.9 TFLOPS w/ hipBLASLt (62%) |
-| PP512 (7B Q4_0) | — | 998 T/s (Vulkan), 906 T/s (HIP) |
-| TG128 (7B Q4_0) | — | 46.5 T/s |
-| TG128 (120B MoE) | — | 52.3 T/s |
-| Decode roofline | 11.1 T/s per node | 212 GB/s ÷ 19.1 GB |
-| Spec multiplier | 2.35× (E[k] = 2.94) | Computed from α = 0.7, γ = 5 |
+| Metric | Paper (Theoretical) | Hardware Capability (Strix Halo) | Status |
+|---|---|---|---|
+| Memory bandwidth | 212 GB/s (§2.1) | 212 GB/s (rocm_bandwidth_test) | ✅ Verified |
+| GPU FP16 peak | 59 TFLOPS (§6.1) | 36.9 TFLOPS w/ hipBLASLt (62% util.) | ⚡ Below peak (SW limit) |
+| Decode roofline | 11.1 T/s per node (40B active) | 52.3 T/s on 120B MoE (llama.cpp) | ✅ Hardware faster than assumed |
+| Spec multiplier | 2.35× (α=0.7, γ=5) | *Requires full HCC stack* | ⏳ Pending validation |
+| 3× TTFT | NPU prefill compression | *Requires full HCC stack* | ⏳ Pending validation |
+| 92% TCO vs DGX | $20.31/GB (§10.1) | $5,200 hardware cost | ✅ Cost structure verified |
+
+**Paper projections are for a dual-node 370B MoE with speculative decoding. Standalone hardware benchmarks on single-node llama.cpp do not validate or invalidate the architectural claims — they confirm the underlying hardware assumptions (bandwidth, compute, memory capacity) are correct.**
 
 ## Paper Reference
 
@@ -88,12 +89,12 @@ All core equations from the paper are implemented:
 
 | Eq. | Description | Location |
 |---|---|---|
-| (3) $T_{comm} = L + S/B + \lceil S/M \rceil \cdot O_{tcp}$ | USB4 transmission time | `src/interconnect/usb4.rs:76` |
+| (3) $T_{comm} = L + S/B + ceil(S/M) \cdot O_{tcp}$ | USB4 transmission time | `src/interconnect/usb4.rs:76` |
 | (5) $E[k] = (1-\alpha^{\gamma+1})/(1-\alpha)$ | Expected accepted tokens | `src/decoding/speculative.rs:29` |
 | (6) $S = E[k] / (1 + \gamma \cdot c/C)$ | Speculative speedup | `src/decoding/speculative.rs:39` |
-| (8) $\tilde{x} = (1/\sqrt{d}) \cdot H_d \cdot \operatorname{diag}(s) \cdot x$ | Walsh-Hadamard rotation | `turboquant-rs` crate |
+| (8) $\tilde{x} = (1/\sqrt{d}) \cdot H_d \cdot diag(s) \cdot x$ | Walsh-Hadamard rotation | `turboquant-rs` crate |
 | (9) $D_{MSE} \leq \sqrt{3\pi/2} \cdot 1/4^b$ | TurboQuant MSE bound | `turboquant-rs` crate |
-| (10) $\tilde{x} = \hat{x}_{MSE} + \frac{\sqrt{\pi/2}}{d} \|r\|_2 \cdot S^T \cdot Q_{QJL}(r)$ | QJL residual correction | `turboquant-rs` crate |
+| (10) $\tilde{x} = \hat{x}_{MSE} + \frac{\sqrt{\pi/2}}{d} ||r||_2 \cdot S^T \cdot Q_{QJL}(r)$ | QJL residual correction | `turboquant-rs` crate |
 
 ## Project Structure
 

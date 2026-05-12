@@ -1,0 +1,47 @@
+# Heterogeneous Compute Cascade (HCC) — Configuration
+# Ref: "Heterogeneous Compute Cascades" (Beltran, April 2026)
+
+[cluster]
+node_count = 2
+node_id = 0
+memory_per_node_gb = 128.0
+memory_bw_gbs = 212.0
+
+[model]
+model_name = "GLM-5.1-REAP-50"
+checkpoint_path = "/models/glm-5.1-reap-50-udq3km"
+hidden_size = 6144
+num_layers = 78
+num_experts = 128
+top_k = 8
+active_params_b = 40.0
+bytes_per_weight = 0.48
+weight_read_gb = 19.1
+kv_lora_rank = 512
+qk_rope_head_dim = 64
+
+[speculative]
+draft_len = 5
+acceptance_rate = 0.7
+draft_cost_ratio = 0.05
+draft_params_b = 8.0
+
+[interconnect]
+link_count = 2
+throughput_gbps = 45.0
+rtt_us = 17.0
+base_latency_us = 14.0
+mtu = 9000
+tcp_overhead_us = 1.2
+kernel_tune = true
+
+[kv_cache]
+bits = 3
+block_size = 128
+hadamard_rotate = true
+qjl_correct = true
+
+[session]
+max_sessions = 9
+max_context = 200000
+static_batch = 1

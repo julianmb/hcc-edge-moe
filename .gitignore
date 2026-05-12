@@ -1,0 +1,5 @@
+/target/
+paper_full.txt
+*.swp
+*.swo
+.DS_Store

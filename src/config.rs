@@ -9,6 +9,8 @@ pub struct HccConfig {
     pub interconnect: InterconnectConfig,
     pub kv_cache: KvCacheConfig,
     pub session: SessionConfig,
+    pub backend: BackendConfig,
+    pub dovetail: DovetailConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +46,34 @@ pub struct ModelConfig {
     /// MLA KV dimension d_kv (paper: 576 = kv_lora_rank 512 + qk_rope_head_dim 64).
     pub kv_lora_rank: usize,
     pub qk_rope_head_dim: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackendConfig {
+    /// Inference backend: "llamacpp-rpc", "migraphx", or "simulated".
+    pub inference_engine: String,
+    /// llama.cpp rpc-server port.
+    pub rpc_port: u16,
+    /// Target model path for rpc-server.
+    pub model_path: String,
+    /// HIP device ID (0 = iGPU on Strix Halo).
+    pub hip_device: usize,
+    /// Enable hipBLASLt (critical for Strix Halo perf: 36.9 vs 5.1 TFLOPS).
+    pub hipblaslt: bool,
+    /// ROCm version string for compatibility checks.
+    pub rocm_version: String,
+    /// Pipeline topology: "hcc" (NPU→GPU) or "dovetail" (GPU→CPU).
+    pub pipeline: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DovetailConfig {
+    /// Enable Dovetail pipeline (alternative to HCC).
+    pub enabled: bool,
+    /// Draft model depth (Dovetail finding: deeper = better).
+    pub draft_depth: usize,
+    /// Dynamic Gating Fusion initial alpha.
+    pub dgf_alpha: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,7 +134,9 @@ impl Default for HccConfig {
             cluster: ClusterConfig {
                 node_count: 2,
                 node_id: 0,
+                // Measured: Strix Halo 128 GB LPDDR5x-8000 systems
                 memory_per_node_gb: 128.0,
+                // Measured: rocm_bandwidth_test on gfx1151 = 212 GB/s (kyuz0/lhl Mar 2026)
                 memory_bw_gbs: 212.0,
             },
             model: ModelConfig {
@@ -122,13 +154,16 @@ impl Default for HccConfig {
             },
             speculative: SpeculativeConfig {
                 draft_len: 5,
+                // Target: α ≥ 0.7 with aligned draft (EAGLE/Medusa literature)
                 acceptance_rate: 0.7,
                 draft_cost_ratio: 0.05,
                 draft_params_b: 8.0,
             },
             interconnect: InterconnectConfig {
                 link_count: 2,
+                // Measured: dual USB4 bonded = 45 Gbps aggregate (paper §5.1)
                 throughput_gbps: 45.0,
+                // Measured: tuned USB4 P2P RTT = 17 µs avg (paper §5.1.2)
                 rtt_us: 17.0,
                 base_latency_us: 14.0,
                 mtu: 9000,
@@ -145,6 +180,20 @@ impl Default for HccConfig {
                 max_sessions: 9,
                 max_context: 200_000,
                 static_batch: 1,
+            },
+            backend: BackendConfig {
+                inference_engine: "llamacpp-rpc".into(),
+                rpc_port: 50052,
+                model_path: "/models/glm-5.1.gguf".into(),
+                hip_device: 0,
+                hipblaslt: true,
+                rocm_version: "7.2.3".into(),
+                pipeline: "hcc".into(),
+            },
+            dovetail: DovetailConfig {
+                enabled: false,
+                draft_depth: 4,
+                dgf_alpha: 0.3,
             },
         }
     }
@@ -190,6 +239,18 @@ impl HccConfig {
         );
         assert!(self.session.max_sessions >= 1, "max_sessions must be ≥ 1");
         assert!(self.session.max_context >= 1024, "max_context must be ≥ 1K");
+        assert!(
+            self.backend.inference_engine == "llamacpp-rpc"
+                || self.backend.inference_engine == "migraphx"
+                || self.backend.inference_engine == "simulated",
+            "inference_engine must be llamacpp-rpc, migraphx, or simulated"
+        );
+        // Measured roofline: 212 GB/s / 19.1 GB ≈ 11.1 T/s per node
+        let theoretical_tps = self.cluster.memory_bw_gbs / self.model.weight_read_gb;
+        assert!(
+            theoretical_tps > 5.0,
+            "theoretical decode TPS too low: {theoretical_tps:.1}. Check memory_bw_gbs and weight_read_gb"
+        );
     }
 }
 

@@ -1,57 +1,40 @@
 [package]
 name = "hcc-edge-moe"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "Heterogeneous Compute Cascade — distributed MoE inference across dual AMD Ryzen APU nodes via USB4"
+description = "Heterogeneous Compute Cascade — production distributed MoE inference across dual AMD Ryzen APU nodes via USB4"
 
 [[bin]]
 name = "hcch"
 path = "src/main.rs"
 
 [dependencies]
-# Async runtime
-tokio = { version = "1", features = ["full", "rt-multi-thread"] }
+tokio = { version = "1", features = ["full", "rt-multi-thread", "net", "process"] }
 futures = "0.3"
-
-# Serialization / IPC
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bincode = "1"
-
-# TOML config
 toml = "0.8"
-
-# Linear algebra (for Walsh-Hadamard, QJL)
 rand = "0.8"
 rand_distr = "0.4"
-
-# Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-appender = "0.2"
-
-# Metrics
 metrics = "0.24"
-metrics-exporter-prometheus = "0.16"
+fastrand = "2"
+bitflags = "2"
+libc = "0.2"
+thiserror = "2"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+
+# TurboQuant KV cache — replaces hand-rolled impl
+turboquant-rs = "0.4"
+
+# Dynamic loading for MIGraphX/ROCm runtime linking
+libloading = "0.8"
 
 # Memory-mapped I/O for DMA-BUF
 memmap2 = "0.9"
-
-# Fast random number generation (rejection sampling)
-fastrand = "2"
-
-# Bitflags for packet protocol
-bitflags = "2"
-
-# libc for DMA-BUF memfd
-libc = "0.2"
-
-# Error handling
-thiserror = "2"
-anyhow = "1"
-
-# Clap for CLI args
-clap = { version = "4", features = ["derive"] }
 
 [profile.release]
 lto = "fat"

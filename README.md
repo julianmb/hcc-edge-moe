@@ -136,12 +136,11 @@ requires a GRUB boot parameter change and reboot.
 
 | Model | Size | Best PP (T/s) | Best TG (T/s) |
 |---|---|---|---|
-| GLM-4.7-Flash | 9B | 163.3 | 66.8 |
-| Qwen3.5-9B | 9B | 140.1 | 36.2 |
+| GLM-4.7-Flash | 30B / 3B active (MoE) | 163.3 | 66.8 |
 | Qwen3.5-35B-A3B (MoE) | 35B / 3B active | 150.0 | 67.6 |
 | GPT-OSS 120B (MoE) | 120B / 12B active | 136.9 | 58.4 |
 
-Measured via Lemonade Server 10.4.0. MoE models benefit from small active parameter counts — the 35B MoE (3B active) outruns the 9B dense.
+Measured via Lemonade Server 10.4.0. MoE models benefit from small active parameter counts — the 30B and 35B MoEs both have only ~3B active and run at similar speeds.
 
 ---
 

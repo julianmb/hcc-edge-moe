@@ -113,7 +113,25 @@ Verified on **AMD Ryzen AI MAX+ 395** (Framework Desktop, 128 GB LPDDR5x-8000).
 | Memory | 128 GB LPDDR5x-8000 (256 GB/s peak) | 212 GB/s (rocm_bandwidth_test) |
 | Interconnect | USB4 / Thunderbolt 4 (40 Gbps per link) | 17 µs RTT (tuned, P2P) |
 | ROCm | 7.2.3 | Stable with gfx1151 |
-| Kernel | 6.17.2 | amdxdna, amdgpu drivers |
+| Kernel | 6.17.0-1020-oem | Ubuntu OEM kernel with Strix Halo patches, amdxdna + amdgpu + thunderbolt |
+
+### Kernel Tuning (paper §5.1.3)
+
+Current status on this system (Ubuntu OEM kernel 6.17.0-1020-oem):
+
+```bash
+# Check current tuning:
+hcch tune
+
+# Apply low-latency USB4 tuning (requires reboot for ASPM + sudo for rest):
+hcch tune --apply
+```
+
+The OEM kernel includes all required drivers (`amdxdna.ko` with DMA_BUF, `thunderbolt`, `amdgpu`).
+Runtime tuning (BBR, busy-poll, governor) can be applied live. ASPM disable (`pcie_aspm=off`)
+requires a GRUB boot parameter change and reboot.
+
+**Impact**: P99 RTT drops from 97 µs to 27.85 µs (71% reduction, paper Table 2).
 
 ### llama.cpp Benchmarks (single node, kyuz0/level1techs Mar 2026)
 

@@ -1,0 +1,86 @@
+# HCC ClawRig profile for local Qwen3.6-35B-A3B via llama.cpp Vulkan.
+# This model is already present in the Lemonade Hugging Face cache on this box.
+
+[cluster]
+node_count = 1
+node_id = 0
+memory_per_node_gb = 128.0
+memory_bw_gbs = 212.0
+
+[model]
+model_name = "Qwen3.6-35B-A3B"
+checkpoint_path = "/var/lib/lemonade/.cache/huggingface/hub/models--unsloth--Qwen3.6-35B-A3B-GGUF/snapshots/a483e9e6cbd595906af30beda3187c2663a1118c/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+hidden_size = 2048
+num_layers = 40
+num_experts = 256
+top_k = 8
+active_params_b = 3.0
+bytes_per_weight = 0.60
+kv_lora_rank = 256
+qk_rope_head_dim = 256
+
+[speculative]
+draft_len = 5
+acceptance_rate = 0.7
+draft_cost_ratio = 0.05
+draft_params_b = 0.0
+
+[interconnect]
+link_count = 1
+throughput_gbps = 45.0
+rtt_us = 17.0
+base_latency_us = 14.0
+mtu = 9000
+tcp_overhead_us = 1.2
+kernel_tune = true
+
+[kv_cache]
+bits = 3
+block_size = 128
+hadamard_rotate = true
+qjl_correct = true
+
+[session]
+max_sessions = 1
+max_context = 16384
+static_batch = 1
+
+[backend]
+inference_engine = "llamacpp-rpc"
+server_bin = "llama-server"
+spawn_server = true
+rpc_port = 8081
+model_path = "/var/lib/lemonade/.cache/huggingface/hub/models--unsloth--Qwen3.6-35B-A3B-GGUF/snapshots/a483e9e6cbd595906af30beda3187c2663a1118c/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+model_alias = "qwen3.6-35b-a3b"
+hip_device = 0
+device = "Vulkan0"
+hipblaslt = false
+rocm_version = "7.2.3"
+pipeline = "hcc"
+ctx_size = 16384
+batch_size = 2048
+ubatch_size = 512
+parallel = 1
+threads = -1
+threads_batch = -1
+poll = 50
+flash_attn = "on"
+cache_type_k = "q8_0"
+cache_type_v = "q4_0"
+gpu_layers = "all"
+fit = true
+fit_target_mib = 4096
+fit_ctx = 4096
+cache_prompt = true
+cache_reuse = 0
+no_webui = true
+metrics = true
+reasoning = "off"
+spec_type = "none"
+startup_timeout_s = 300
+extra_args = []
+
+[dovetail]
+enabled = false
+draft_depth = 4
+dgf_alpha = 0.3

@@ -3,7 +3,7 @@
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.19562855-blue)](https://doi.org/10.5281/zenodo.19562855)
 ![Rust](https://img.shields.io/badge/rust-1.89%2B-orange)
 ![ROCm](https://img.shields.io/badge/ROCm-7.2.3-green)
-![Tests](https://img.shields.io/badge/tests-30%2F30-green)
+![Tests](https://img.shields.io/badge/tests-31%2F31-green)
 ![Strix Halo](https://img.shields.io/badge/ClawRig-Strix%20Halo-blue)
 
 <p align="center">
@@ -11,6 +11,35 @@
   <br>
   <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade Strix Halo workstation with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference.
 </p>
+
+## ClawRig Qwen3.6-35B-A3B Fast Path
+
+HCC now includes a local ClawRig profile inspired by the Lucebox/DFlash runtime
+choices: full accelerator offload, Flash Attention, asymmetric KV cache, prompt
+caching, and an inference-only `llama-server` launch path.
+
+```bash
+cargo run --locked -- measure --config configs/qwen36-35b-a3b.toml
+```
+
+Measured on the local ClawRig (Ryzen AI MAX+ 395 / Radeon 8060S) with
+`Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf`:
+
+| Setting | Value |
+|---|---|
+| Backend | llama.cpp Vulkan (`Vulkan0`, RADV STRIX_HALO) |
+| Model offload | 41/41 layers on GPU |
+| Attention | Flash Attention enabled |
+| KV cache | K=`q8_0`, V=`q4_0` |
+| Context | 16K |
+| TTFT | 294.4 ms |
+| Prompt speed | 114.5 tok/s |
+| Decode speed | 48.7 tok/s |
+
+The installed llama.cpp build reports that speculative decoding is not
+supported for this recurrent `qwen35moe` context, so this profile uses the
+fastest available local llama.cpp/Vulkan execution path rather than DDTree
+speculative verification.
 
 ## v0.4.0 Architectural Updates (Next Gen)
 

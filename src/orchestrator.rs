@@ -68,7 +68,7 @@ impl HccOrchestrator {
         let (target_runner, migraphx) = match cfg.backend.inference_engine.as_str() {
             "llamacpp-rpc" => {
                 tracing::info!("Backend: llama.cpp RPC :{}", cfg.backend.rpc_port);
-                let runner = TargetRunner::new(cfg.backend.model_path.clone(), cfg.backend.rpc_port).await?;
+                let runner = TargetRunner::new(cfg.backend.clone()).await?;
                 (Some(Arc::new(Mutex::new(runner))), None)
             }
             "migraphx" => {

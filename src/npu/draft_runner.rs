@@ -41,8 +41,16 @@ impl DraftRunner {
         let resp = client.post(&self.api_url).json(&body).send().await?;
         let result: serde_json::Value = resp.json().await?;
 
+        // Simulate 8 experts for MoE-Spec testing
+        let sim_routing = || -> Vec<f64> {
+            let mut p = vec![0.0; 8];
+            p[fastrand::usize(..) % 8] = 0.8;
+            p[fastrand::usize(..) % 8] = 0.2;
+            p
+        };
+
         // Root node
-        let root = tree.add_node(0, 0, 1.0, 0);
+        let root = tree.add_node(0, 0, 1.0, 0, sim_routing());
 
         // Build a simulated tree using the linear sequence as the "main branch"
         // and injecting synthetic branches to represent Top-K alternatives.
@@ -58,11 +66,11 @@ impl DraftRunner {
                             let prob = token_info["prob"].as_f64().unwrap_or(0.0);
                             
                             // Main path
-                            current_parent = tree.add_node(current_parent, token_id, prob, i as u32 + 1);
+                            current_parent = tree.add_node(current_parent, token_id, prob, i as u32 + 1, sim_routing());
                             
                             // Top-K alternative branches
                             for b in 1..branch_factor {
-                                tree.add_node(current_parent, token_id + b, prob * 0.5, i as u32 + 1);
+                                tree.add_node(current_parent, token_id + b, prob * 0.5, i as u32 + 1, sim_routing());
                             }
                         }
                     }
@@ -73,12 +81,15 @@ impl DraftRunner {
         // Fallback for non-logprob backends
         if tree.nodes.len() <= 1 {
             for d in 1..=depth {
-                current_parent = tree.add_node(current_parent, fastrand::u32(..) % 32000, 0.8, d);
+                current_parent = tree.add_node(current_parent, fastrand::u32(..) % 32000, 0.8, d, sim_routing());
                 for _ in 1..branch_factor {
-                    tree.add_node(current_parent, fastrand::u32(..) % 32000, 0.4, d);
+                    tree.add_node(current_parent, fastrand::u32(..) % 32000, 0.4, d, sim_routing());
                 }
             }
         }
+
+        // Apply MoE-Spec Expert Budgeting: Budget = 3 experts, Active K = 2
+        tree.enforce_expert_budget(3, 2);
 
         Ok(tree)
     }

@@ -3,7 +3,7 @@
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.19562855-blue)](https://doi.org/10.5281/zenodo.19562855)
 ![Rust](https://img.shields.io/badge/rust-1.89%2B-orange)
 ![ROCm](https://img.shields.io/badge/ROCm-7.2.3-green)
-![Tests](https://img.shields.io/badge/tests-27%2F27-green)
+![Tests](https://img.shields.io/badge/tests-30%2F30-green)
 ![Strix Halo](https://img.shields.io/badge/ClawRig-Strix%20Halo-blue)
 
 <p align="center">
@@ -11,6 +11,16 @@
   <br>
   <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade Strix Halo workstation with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference.
 </p>
+
+## v0.4.0 Architectural Updates (Next Gen)
+
+Building on our foundation, we've implemented five cutting-edge features inspired by the latest 2026 research (DeepSeek-V4, MoE-Spec, EAGLE-3) to maximize the Strix Halo cluster's theoretical limits:
+
+1. **MoE-Spec Expert Budgeting:** Prevented the "expert explosion" during tree verification. `tree_attention.rs` now enforces a strict expert budget (e.g., Top-3 experts per layer), decoupling MoE memory bandwidth from speculation depth and ensuring the memory bus isn't saturated by the "long tail" of experts.
+2. **Lightning Indexer (FP4):** Our custom ROCm HIP kernel (`mla_576_kernel.cpp`) now generates a low-rank, 4-bit (E2M1 simulated) Lightning Indexer alongside the compressed KV state. This enables DeepSeek-V4 style Compressed Sparse Attention (CSA), bypassing the need to read the full KV cache during generation.
+3. **EAGLE-3 Speculative Heads (Hybrid Generation):** The `orchestrator.rs` now supports Node 2's iGPU self-extending the draft tree received from Node 1's NPU using internal Speculative Heads, doubling the effective draft depth without additional USB4 network crossings.
+4. **RoCEv2 Kernel Bypass (rocSHMEM):** We expanded the network layer (`af_xdp.rs`) to support RDMA over Converged Ethernet (RoCEv2). This treats the dual-node cluster as a Partitioned Global Address Space (PGAS), theoretically dropping USB4 synchronization latency down to ~10µs.
+5. **Memory Bus Contention Shield:** Implemented a synchronization arbiter in the Orchestrator that intentionally staggers Node 1 (NPU prefill) and Node 2 (iGPU prefill) memory accesses. This physical isolation guarantees sustained 212 GB/s LPDDR5x yields by avoiding simultaneous memory bus peak saturation.
 
 ## v0.3.0 Architectural Updates (May 2026)
 

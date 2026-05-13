@@ -12,6 +12,10 @@ pub struct TreeNode {
     pub token_id: u32,
     pub probability: f64,
     pub depth: u32,
+    /// MoE-Spec: The routing probabilities for each expert for this token.
+    pub routing_probs: Vec<f64>,
+    /// MoE-Spec: The actual experts selected after budgeting is applied.
+    pub budgeted_experts: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +33,7 @@ impl DraftTree {
     }
 
     /// Add a node to the draft tree.
-    pub fn add_node(&mut self, parent_id: u32, token_id: u32, prob: f64, depth: u32) -> u32 {
+    pub fn add_node(&mut self, parent_id: u32, token_id: u32, prob: f64, depth: u32, routing_probs: Vec<f64>) -> u32 {
         let node_id = self.nodes.len() as u32;
         self.nodes.push(TreeNode {
             node_id,
@@ -37,6 +41,8 @@ impl DraftTree {
             token_id,
             probability: prob,
             depth,
+            routing_probs,
+            budgeted_experts: Vec::new(),
         });
         if depth > self.max_depth {
             self.max_depth = depth;
@@ -67,6 +73,66 @@ impl DraftTree {
     pub fn flatten_tokens(&self) -> Vec<u32> {
         self.nodes.iter().map(|n| n.token_id).collect()
     }
+
+    /// Implements MoE-Spec Expert Budgeting.
+    /// 
+    /// Prevents the "expert explosion" during tree verification.
+    /// It scores experts by summing routing probabilities across the tree,
+    /// selects the Top-B experts globally for the layer, and forces all tokens
+    /// to route only to those B experts.
+    pub fn enforce_expert_budget(&mut self, budget_b: usize, active_k: usize) {
+        if self.nodes.is_empty() || self.nodes[0].routing_probs.is_empty() {
+            return;
+        }
+
+        let num_experts = self.nodes[0].routing_probs.len();
+        let mut global_scores = vec![0.0; num_experts];
+
+        // 1. Calculate aggregate score for each expert
+        for node in &self.nodes {
+            if node.routing_probs.len() == num_experts {
+                for (expert_idx, &prob) in node.routing_probs.iter().enumerate() {
+                    global_scores[expert_idx] += prob;
+                }
+            }
+        }
+
+        // 2. Select Top-B experts
+        let mut scored_experts: Vec<(usize, f64)> = global_scores.into_iter().enumerate().collect();
+        scored_experts.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        
+        let budget: std::collections::HashSet<usize> = scored_experts
+            .into_iter()
+            .take(budget_b)
+            .map(|(idx, _)| idx)
+            .collect();
+
+        // 3. Remap each node's Top-K experts to the budgeted Top-B list
+        for node in &mut self.nodes {
+            if node.routing_probs.is_empty() { continue; }
+            
+            let mut local_scored: Vec<(usize, f64)> = node.routing_probs
+                .iter()
+                .enumerate()
+                .map(|(idx, &p)| (idx, p))
+                .collect();
+                
+            // Sort by local probability, but heavily penalize experts not in the budget
+            local_scored.sort_by(|a, b| {
+                let a_in_budget = budget.contains(&a.0);
+                let b_in_budget = budget.contains(&b.0);
+                if a_in_budget && !b_in_budget {
+                    std::cmp::Ordering::Less
+                } else if !a_in_budget && b_in_budget {
+                    std::cmp::Ordering::Greater
+                } else {
+                    b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                }
+            });
+
+            node.budgeted_experts = local_scored.into_iter().take(active_k).map(|(idx, _)| idx as u32).collect();
+        }
+    }
 }
 
 /// Computes expected accepted tokens E[k] for a tree structure.
@@ -96,12 +162,12 @@ mod tests {
     fn test_tree_attention_mask() {
         let mut tree = DraftTree::new();
         // Root
-        tree.add_node(0, 100, 1.0, 0);
+        tree.add_node(0, 100, 1.0, 0, vec![]);
         // Branches from root
-        let child1 = tree.add_node(0, 101, 0.6, 1);
-        let child2 = tree.add_node(0, 102, 0.4, 1);
+        let child1 = tree.add_node(0, 101, 0.6, 1, vec![]);
+        let child2 = tree.add_node(0, 102, 0.4, 1, vec![]);
         // Branch from child1
-        tree.add_node(child1, 103, 0.8, 2);
+        tree.add_node(child1, 103, 0.8, 2, vec![]);
 
         let mask = tree.build_attention_mask();
         assert!(mask[0][0]);
@@ -110,5 +176,33 @@ mod tests {
         assert!(mask[0][3]); // Root is ancestor of grandchild
         assert!(!mask[1][2]); // child1 is NOT ancestor of child2
         assert!(mask[1][3]); // child1 IS ancestor of grandchild
+    }
+
+    #[test]
+    fn test_expert_budgeting() {
+        let mut tree = DraftTree::new();
+        // 8 experts total. Budget B=3, K=2.
+        
+        // Node 1 wants experts 0 and 1
+        tree.add_node(0, 100, 1.0, 0, vec![0.9, 0.8, 0.1, 0.1, 0.0, 0.0, 0.0, 0.0]);
+        // Node 2 wants experts 2 and 3
+        tree.add_node(0, 101, 1.0, 1, vec![0.0, 0.0, 0.9, 0.8, 0.1, 0.1, 0.0, 0.0]);
+        // Node 3 wants experts 0 and 2
+        tree.add_node(0, 102, 1.0, 1, vec![0.9, 0.1, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        
+        // Aggregate scores: Expert 0=1.8, Expert 2=1.8, Expert 1=0.9, Expert 3=0.8.
+        // Top B=3 budget: Experts {0, 2, 1}.
+        
+        tree.enforce_expert_budget(3, 2);
+        
+        assert_eq!(tree.nodes[0].budgeted_experts, vec![0, 1]); // Naturally in budget
+        assert_eq!(tree.nodes[2].budgeted_experts, vec![0, 2]); // Naturally in budget
+        
+        // Node 1 wanted 2 and 3. 2 is in budget, 3 is NOT.
+        // The algorithm should remap the second slot to an expert in the budget (e.g. 0 or 1).
+        let budgeted_for_node_2 = &tree.nodes[1].budgeted_experts;
+        assert!(budgeted_for_node_2.contains(&2));
+        assert!(!budgeted_for_node_2.contains(&3)); // 3 was evicted
+        assert!(budgeted_for_node_2.contains(&0) || budgeted_for_node_2.contains(&1));
     }
 }

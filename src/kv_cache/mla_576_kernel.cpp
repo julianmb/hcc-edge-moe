@@ -2,6 +2,7 @@
 // 
 // Bypasses the strict power-of-2 requirements of generic TurboQuant, reclaiming
 // 44% of the KV Cache memory footprint on Strix Halo unified memory.
+// Integrates DeepSeek-V4 style FP4 "Lightning Indexer" for Compressed Sparse Attention.
 //
 // Compile with: hipcc -O3 -mcpu=gfx1151 mla_576_kernel.cpp -shared -o libmla576.so
 
@@ -9,6 +10,7 @@
 #include <hip/hip_fp16.h>
 
 #define MLA_DIM 576
+#define INDEXER_DIM 16 // Low-rank projection dimension for Lightning Indexer
 
 // Fast Walsh-Hadamard Transform specific to d=576
 // Since 576 is not a power of 2, we factor it as 512 + 64.
@@ -63,11 +65,21 @@ __device__ unsigned char quantize_lloyd_max(float v) {
     return best_idx;
 }
 
+// Simulate FP4 E2M1 Quantization for Lightning Indexer
+__device__ unsigned char quantize_fp4(float v, float scale) {
+    // Simplified 16-level quantization mapped to 4 bits
+    if (scale < 1e-6f) return 0;
+    float normalized = fmaxf(-1.0f, fminf(1.0f, v / scale));
+    int q = (int)roundf((normalized + 1.0f) * 7.5f);
+    return (unsigned char)(q & 0x0F);
+}
+
 // Kernel to PolarQuantize an incoming FP16 activation vector of size 576
-// into a packed 3-bit buffer.
+// into a packed 3-bit buffer, AND generate a 4-bit Lightning Indexer signature.
 extern "C" __global__ void polar_quantize_mla_576_kernel(
     const half* __restrict__ input,
     unsigned char* __restrict__ output,
+    unsigned char* __restrict__ indexer_out,
     float* __restrict__ norms,
     int batch_size
 ) {
@@ -94,6 +106,35 @@ extern "C" __global__ void polar_quantize_mla_576_kernel(
     __syncthreads();
     
     float norm = norms[batch_idx];
+    
+    // Lightning Indexer: Extract low-rank summary BEFORE Walsh-Hadamard spreading
+    __shared__ float indexer_raw[INDEXER_DIM];
+    if (tid < INDEXER_DIM) {
+        // In reality, this is a matmul `s_data * W_idx`. Here we downsample via average pooling
+        float sum = 0.0f;
+        int chunk = MLA_DIM / INDEXER_DIM;
+        for (int i = 0; i < chunk; i++) {
+            sum += s_data[tid * chunk + i];
+        }
+        indexer_raw[tid] = sum / chunk;
+    }
+    __syncthreads();
+
+    // FP4 Quantize the indexer vector (2 values per byte)
+    if (tid < INDEXER_DIM / 2) {
+        // Thread 0 computes scale for the indexer
+        float max_val = 0.0f;
+        for (int i = 0; i < INDEXER_DIM; i++) {
+            max_val = fmaxf(max_val, fabsf(indexer_raw[i]));
+        }
+        float idx_scale = max_val + 1e-5f;
+
+        unsigned char q1 = quantize_fp4(indexer_raw[tid * 2], idx_scale);
+        unsigned char q2 = quantize_fp4(indexer_raw[tid * 2 + 1], idx_scale);
+        indexer_out[batch_idx * (INDEXER_DIM / 2) + tid] = (q1 << 4) | q2;
+    }
+
+    // Normalization & Pre-conditioning
     if (tid < MLA_DIM && norm > 1e-6f) {
         s_data[tid] /= norm;
         // Random sign flip (Johnson-Lindenstrauss pre-conditioning)

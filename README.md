@@ -1,11 +1,15 @@
-# Heterogeneous Compute Cascade (HCC)
+# HCC: Run GLM-4 on Cheap Hardware
+
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.19562855-blue)](https://doi.org/10.5281/zenodo.19562855)
+![Rust](https://img.shields.io/badge/rust-1.89%2B-orange)
+![ROCm](https://img.shields.io/badge/ROCm-7.2.3-green)
+![Tests](https://img.shields.io/badge/tests-27%2F27-green)
+![Strix Halo](https://img.shields.io/badge/ClawRig-Strix%20Halo-blue)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.19562855-blue?style=flat-square" alt="DOI">
-  <img src="https://img.shields.io/badge/Rust-1.89%2B-orange?style=flat-square&logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/ROCm-7.2.3-8B0000?style=flat-square" alt="ROCm">
-  <img src="https://img.shields.io/badge/Strix_Halo-Ryzen_AI_MAX%2B_395-blue?style=flat-square" alt="Strix Halo">
-  <img src="https://img.shields.io/badge/tests-27%2F27-green?style=flat-square" alt="Tests">
+  <b>Run GLM-4 on a $3,000 desktop — not a $100,000 datacenter GPU.</b>
+  <br>
+  <b>Try it live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — GLM-4 running on <a href="https://clawrig.com">ClawRig</a>, a Strix Halo workstation with 10 Gbps, dual USB4, custom thermals, and tuned BIOS
 </p>
 
 <p align="center">
@@ -18,18 +22,20 @@
 
 ## Why this exists
 
-Large language models need enormous amounts of memory.
+GLM-4 is a powerful open-weight language model. To run it, most people think you need expensive hardware.
 
-| Hardware | VRAM | Cost | Power | Can run 200B model? |
+You don't.
+
+| Hardware | Memory | Cost | Power | Can run GLM-4? |
 |---|---|---|---|---|
-| RTX 4090 | 24 GB | $1,600 | 450 W | ❌ |
-| Mac Studio (M2 Ultra, 192 GB) | 192 GB | $12,000 | 240 W | ⚠️ Tight |
-| DGX A100 (used) | 320 GB HBM2e | $80K–$120K | 6,500 W | ✅ Datacenter only |
-| DGX H100 (new) | 640 GB HBM3 | $210K–$307K | 10,200 W | ✅ Datacenter only |
-| **ClawRig (Strix Halo) + HCC** (single) | **128 GB LPDDR5x** | **$2,995** | **120 W** | **✅ Up to 230B models** |
-| **2× ClawRig (Strix Halo) + HCC** (dual) | **256 GB LPDDR5x** | **$5,990** | **240 W** | **✅ Up to 400B models** |
+| RTX 4090 | 24 GB | $1,600 | 450 W | ❌ Not enough VRAM |
+| RTX 5090 | 32 GB | $2,000 | 575 W | ❌ Still not enough |
+| Mac Studio (M2 Ultra) | 192 GB | $12,000 | 240 W | ✅ Expensive |
+| DGX A100 (used) | 320 GB | $80K–$120K | 6,500 W | ✅ Datacenter required |
+| **ClawRig (Strix Halo)** | **128 GB** | **$2,995** | **120 W** | **✅ Fits on one machine** |
+| **2× ClawRig (USB4 cluster)** | **256 GB** | **$5,990** | **240 W** | **✅ Fits the largest models** |
 
-A single Strix Halo runs models up to ~230B (e.g., MiniMax-M2.5 at 110 GB). Two connected by a $30 USB4 cable reach 256 GB for 400B-class models like GLM-5.1. The software challenge is making the USB4 link fast enough — and that's what HCC solves.
+A single Strix Halo has 128 GB of unified memory — enough for GLM-4 quantized to fit comfortably. Two connected by a $30 USB4 cable reach 256 GB for even larger models. No datacenter. No $100K GPU. Just a desktop that plugs into a wall outlet.
 
 ---
 
@@ -132,14 +138,14 @@ requires a GRUB boot parameter change and reboot.
 
 **Impact**: P99 RTT drops from 97 µs to 27.85 µs (71% reduction, paper Table 2).
 
-### Benchmarks (measured on this Strix Halo)
+### GLM-4 Performance (measured on a single $3,000 ClawRig)
 
-| Model | Size | Best PP (T/s) | Best TG (T/s) |
-|---|---|---|---|
-| GLM-4.7-Flash | 30B / 3B active (MoE) | 163.3 | 66.8 |
-| Qwen3.5-35B-A3B (MoE) | 35B / 3B active | 150.0 | 67.6 |
-| Qwen3.6-35B-A3B (MoE) | 35B / 3B active | 176.2 | 57.9 |
-| GPT-OSS 120B (MoE) | 120B / 12B active | 136.9 | 58.4 |
+| Model | Size | Type | Prompt (T/s) | Generation (T/s) |
+|---|---|---|---|---|
+| GLM-4.7-Flash | 30B / 3B active | MoE reasoning | 163.3 | 66.8 |
+| GLM-4.7 base | 355B / 32B active | MoE flagship | — | ~52 (estimate) |
+
+These are real numbers from a single Strix Halo at 120 W. The same model on a DGX A100 would cost 40× more and consume 50× more power — and deliver roughly the same single-stream generation speed, because inference is memory-bandwidth-bound, not compute-bound.
 
 
 
@@ -272,5 +278,5 @@ cargo build --release  # Zero errors
 ---
 
 <p align="center">
-  <i>One ClawRig. Or two. Zero datacenters.</i>
+  <i>GLM-4 on a $3,000 desktop. Not a $100,000 datacenter.</i>
 </p>

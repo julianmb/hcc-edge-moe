@@ -138,8 +138,8 @@ impl Default for HccConfig {
                 memory_bw_gbs: 212.0,
             },
             model: ModelConfig {
-                model_name: "GLM-5.1-REAP-50".into(),
-                checkpoint_path: "/models/glm-5.1-reap-50-udq3km".into(),
+                model_name: "GLM-4.7-Flash".into(),
+                checkpoint_path: "/var/lib/lemonade/.cache/huggingface/hub/models--unsloth--GLM-4.7-Flash-GGUF/snapshots/0d32489ecb9db6d2a4fc93bd27ef01519f95474d/GLM-4.7-Flash-UD-Q4_K_XL.gguf".into(),
                 hidden_size: 6144,
                 num_layers: 78,
                 num_experts: 128,
@@ -182,7 +182,7 @@ impl Default for HccConfig {
             backend: BackendConfig {
                 inference_engine: "llamacpp-rpc".into(),
                 rpc_port: 50052,
-                model_path: "/models/glm-5.1.gguf".into(),
+                model_path: "/var/lib/lemonade/.cache/huggingface/hub/models--unsloth--GLM-4.7-Flash-GGUF/snapshots/0d32489ecb9db6d2a4fc93bd27ef01519f95474d/GLM-4.7-Flash-UD-Q4_K_XL.gguf".into(),
                 hip_device: 0,
                 hipblaslt: true,
                 rocm_version: "7.2.3".into(),

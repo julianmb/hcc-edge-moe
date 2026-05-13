@@ -143,7 +143,7 @@ impl AsyncDraftStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::decoding::speculative::DraftToken;
+use crate::decoding::speculative::DraftToken;
 
     #[test]
     fn test_compress_draft_small() {

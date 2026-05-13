@@ -5,6 +5,7 @@ mod error;
 mod igpu;
 mod interconnect;
 mod kv_cache;
+mod measure;
 mod npu;
 mod orchestrator;
 mod session;
@@ -40,6 +41,11 @@ enum Commands {
         #[arg(short, long, default_value = "config.toml")]
         config: String,
     },
+    /// Run real inference measurement against paper predictions
+    Measure {
+        #[arg(short, long, default_value = "config.toml")]
+        config: String,
+    },
     /// Check kernel tuning status
     Tune {
         #[arg(long)]
@@ -70,6 +76,11 @@ async fn main() -> anyhow::Result<()> {
             let cfg = config::load(config)?;
             cfg.validate();
             benchmark::BenchmarkRunner::run_all(&cfg)?;
+        }
+        Some(Commands::Measure { config }) => {
+            let cfg = config::load(config)?;
+            cfg.validate();
+            measure::MeasureRunner::run(&cfg).await?;
         }
         Some(Commands::Tune { apply }) => {
             let report = tuner::KernelTuner::check();
@@ -138,6 +149,7 @@ fn print_hardware_info() {
     println!("  hcch run              Start HCC orchestrator");
     println!("  hcch rpc-server       Launch llama.cpp RPC server");
     println!("  hcch benchmark        Run roofline benchmark suite");
+    println!("  hcch measure          Run real inference vs paper predictions");
     println!("  hcch tune             Check kernel tuning");
     println!("  hcch info             Show this info");
     println!();

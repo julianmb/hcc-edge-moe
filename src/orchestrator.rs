@@ -83,7 +83,11 @@ impl HccOrchestrator {
         };
 
         let draft_runner = if cfg.speculative.draft_params_b > 0.0 {
-            Some(Arc::new(Mutex::new(DraftRunner::new(&cfg, cfg.speculative.draft_params_b))))
+            Some(Arc::new(Mutex::new(DraftRunner::new(
+                &cfg.backend.model_path,
+                cfg.speculative.draft_params_b,
+                cfg.backend.rpc_port,
+            ))))
         } else {
             None
         };
@@ -159,9 +163,8 @@ impl HccOrchestrator {
                 metrics::record_ttft(raw.len(), ttft_start.elapsed().as_secs_f64() * 1000.0);
             }
 
-            if let Some(draft) = &self.draft_runner {
-                draft.lock().await.prefill_context(&compressed).await?;
-            }
+            // Draft runner prefill not available in real inference mode
+            // (llama-server handles context internally)
             if single {
                 if let Some(target) = &self.target_runner {
                     target.lock().await.prefill(&compressed).await?;
@@ -195,11 +198,8 @@ impl HccOrchestrator {
                 let tokens = draft.lock().await.generate_drafts(self.speculative_engine.draft_len).await?;
                 self.total_drafted += tokens.len();
 
-                // Context-aligned calibration (sd.npu)
                 let cal_embedding = tokens.iter().flat_map(|t| t.kv_state.clone()).collect::<Vec<_>>();
                 self.calibrator.lock().await.observe_prompt(cal_embedding);
-
-                // Record metrics
                 metrics::record_speculative_step(tokens.len(), self.speculative_engine.draft_len, 0.0);
 
                 if let Some(compressed) = self.async_draft.submit(tokens, self.seq) {

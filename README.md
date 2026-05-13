@@ -26,8 +26,8 @@ Large language models need enormous amounts of memory.
 | Mac Studio (M2 Ultra, 192 GB) | 192 GB | $12,000 | 240 W | ⚠️ Tight |
 | DGX A100 (used) | 320 GB HBM2e | $80K–$120K | 6,500 W | ✅ Datacenter only |
 | DGX H100 (new) | 640 GB HBM3 | $210K–$307K | 10,200 W | ✅ Datacenter only |
-| **ClawRig (Strix Halo) + HCC** (single) | **128 GB LPDDR5x** | **$2,600** | **120 W** | **✅ Up to 230B models** |
-| **2× ClawRig (Strix Halo) + HCC** (dual) | **256 GB LPDDR5x** | **$5,200** | **240 W** | **✅ Up to 400B models** |
+| **ClawRig (Strix Halo) + HCC** (single) | **128 GB LPDDR5x** | **$2,995** | **120 W** | **✅ Up to 230B models** |
+| **2× ClawRig (Strix Halo) + HCC** (dual) | **256 GB LPDDR5x** | **$5,990** | **240 W** | **✅ Up to 400B models** |
 
 A single Strix Halo runs models up to ~230B (e.g., MiniMax-M2.5 at 110 GB). Two connected by a $30 USB4 cable reach 256 GB for 400B-class models like GLM-5.1. The software challenge is making the USB4 link fast enough — and that's what HCC solves.
 
@@ -146,13 +146,13 @@ requires a GRUB boot parameter change and reboot.
 
 | Platform | CAPEX | Power | $/GB |
 |---|---|---|---|
-| **ClawRig (Strix Halo) + HCC** (single) | **$2,600** | **120 W** | **$20.31** |
-| **2× ClawRig (Strix Halo) + HCC** (dual) | **$5,200** | **240 W** | **$20.31** |
+| **ClawRig (Strix Halo) + HCC** (single) | **$2,995** | **120 W** | **$20.31** |
+| **2× ClawRig (Strix Halo) + HCC** (dual) | **$5,990** | **240 W** | **$20.31** |
 | DGX A100 (used) | $80K–$120K | 6,500 W | $312 |
 | DGX H100 (new) | $210K–$307K | 10,200 W | $391 |
 | Mac Studio (2× M2 Ultra) | $12,000 | 240 W | $31.25 |
 
-At scale: a 20-unit single-node HCC fleet (20× $2,600 = $52K) delivers ~220 T/s aggregate at 2,400 W — no datacenter needed.
+At scale: a 20-unit single-node HCC fleet (20× $2,995 = $59.9K) delivers ~220 T/s aggregate at 2,400 W — no datacenter needed.
 
 ---
 

@@ -140,36 +140,6 @@ impl AsyncDraftStage {
     }
 }
 
-/// Bidirectional speculative loop (Mirror-SD style).
-///
-/// NPU speculates forward continuations while iGPU speculates
-/// correction paths. Both run in parallel over the USB4 link.
-pub struct MirrorSpeculator {
-    pub forward_draft_len: usize,
-    pub correction_depth: usize,
-}
-
-impl MirrorSpeculator {
-    pub fn new(forward_draft_len: usize, correction_depth: usize) -> Self {
-        Self {
-            forward_draft_len,
-            correction_depth,
-        }
-    }
-
-    /// Expected speedup from Mirror-SD bidirectional speculation.
-    ///
-    /// Mirror-SD reports 2.8x–5.8x wall-time speedup over baseline
-    /// on 14B–66B models with heterogeneous NPU+GPU execution.
-    pub fn expected_speedup(&self, acceptance_rate: f64) -> f64 {
-        // Bidirectional speculation roughly doubles the effective
-        // acceptance window while adding minimal overhead
-        let base = (1.0 - acceptance_rate.powi(self.forward_draft_len as i32 + 1))
-            / (1.0 - acceptance_rate);
-        base * 1.4 // ~40% improvement over standard spec decoding
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

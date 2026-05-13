@@ -16,7 +16,6 @@ num_experts = 128
 top_k = 8
 active_params_b = 40.0
 bytes_per_weight = 0.48
-weight_read_gb = 19.1
 kv_lora_rank = 512
 qk_rope_head_dim = 64
 

@@ -10,6 +10,7 @@ use crate::kv_cache::MixedPrecisionKVCache;
 use crate::npu::calibrator::DraftCalibrator;
 use crate::npu::draft_runner::DraftRunner;
 use crate::npu::context_compressor::ContextCompressor;
+use crate::session::metrics;
 use crate::session::session_manager::SessionManager;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -102,7 +103,7 @@ impl HccOrchestrator {
             cfg.cluster.memory_per_node_gb, &cfg.model,
         )));
 
-        let theoretical_tps = cfg.cluster.memory_bw_gbs / cfg.model.weight_read_gb;
+        let theoretical_tps = cfg.cluster.memory_bw_gbs / cfg.model.weight_read_gb();
         let spec_speedup = speculative_engine.speedup();
         tracing::info!("roofline decode: {theoretical_tps:.1} T/s per node, {:.1} T/s with speculation ({:.2}x)", 
             theoretical_tps * spec_speedup, spec_speedup);
@@ -142,7 +143,10 @@ impl HccOrchestrator {
         if node_id == 0 {
             let raw = self.session_manager.lock().await.next_context().await;
             let compressed = self.compressor.lock().await.compress(&raw).await?;
+            let ttft_start = std::time::Instant::now();
             self.transport.lock().await.send_to_node(1, &compressed).await?;
+
+            metrics::record_ttft(raw.len(), ttft_start.elapsed().as_secs_f64() * 1000.0);
 
             if let Some(draft) = &self.draft_runner {
                 draft.lock().await.prefill_context(&compressed).await?;
@@ -179,6 +183,9 @@ impl HccOrchestrator {
                 let cal_embedding = tokens.iter().flat_map(|t| t.kv_state.clone()).collect::<Vec<_>>();
                 self.calibrator.lock().await.observe_prompt(cal_embedding);
 
+                // Record metrics
+                metrics::record_speculative_step(tokens.len(), self.speculative_engine.draft_len, 0.0);
+
                 if let Some(compressed) = self.async_draft.submit(tokens, self.seq) {
                     self.transport.lock().await.send_to_node(1, &compressed).await?;
                     self.seq += 1;
@@ -191,6 +198,9 @@ impl HccOrchestrator {
             if self.step % 50 == 0 {
                 let rate = if self.total_drafted > 0 { self.total_accepted as f64 / self.total_drafted as f64 } else { 0.0 };
                 tracing::debug!("step={} accepted_rate={rate:.3}", self.step);
+                metrics::record_decode_throughput(self.total_accepted as f64 / 50.0);
+                let kv_len = self.kv_cache.lock().await.len();
+                metrics::record_kv_cache(self.session_manager.lock().await.session_count(), kv_len as f64);
             }
         }
         Ok(())
@@ -207,9 +217,14 @@ impl HccOrchestrator {
                                 let accepted = accepted_prefix_len as usize;
                                 self.total_accepted += accepted;
                                 self.async_draft.verify(accepted);
-                                // Feed acceptance back to Dovetail
-                                if let Some(dovetail) = &self.dovetail {
-                                    // dovetail adaptive tuning
+                                // Feed acceptance rate to Dovetail adaptive tuning
+                                let rate = if self.total_drafted > 0 {
+                                    self.total_accepted as f64 / self.total_drafted as f64
+                                } else {
+                                    0.0
+                                };
+                                if let Some(ref mut dovetail) = self.dovetail {
+                                    dovetail.record_acceptance(rate);
                                 }
                             }
                             _ => {}

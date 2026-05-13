@@ -41,8 +41,6 @@ pub struct ModelConfig {
     pub active_params_b: f64,
     /// Bytes per weight (paper: 0.48 for UD-Q3 K M).
     pub bytes_per_weight: f64,
-    /// Effective weight GB read per token.
-    pub weight_read_gb: f64,
     /// MLA KV dimension d_kv (paper: 576 = kv_lora_rank 512 + qk_rope_head_dim 64).
     pub kv_lora_rank: usize,
     pub qk_rope_head_dim: usize,
@@ -148,7 +146,7 @@ impl Default for HccConfig {
                 top_k: 8,
                 active_params_b: 40.0,
                 bytes_per_weight: 0.48,
-                weight_read_gb: 19.1,
+                // weight_read_gb removed: computed as active_params_b * bytes_per_weight
                 kv_lora_rank: 512,
                 qk_rope_head_dim: 64,
             },
@@ -199,6 +197,14 @@ impl Default for HccConfig {
     }
 }
 
+impl ModelConfig {
+    /// Compute weight read per token in GB.
+    /// Paper §6.1: 40B active params × 0.48 bytes/weight = 19.1 GB
+    pub fn weight_read_gb(&self) -> f64 {
+        self.active_params_b * self.bytes_per_weight
+    }
+}
+
 impl HccConfig {
     /// Validate all configuration parameters. Panics with a clear message on invalid values.
     pub fn validate(&self) {
@@ -246,10 +252,10 @@ impl HccConfig {
             "inference_engine must be llamacpp-rpc, migraphx, or simulated"
         );
         // Measured roofline: 212 GB/s / 19.1 GB ≈ 11.1 T/s per node
-        let theoretical_tps = self.cluster.memory_bw_gbs / self.model.weight_read_gb;
+        let theoretical_tps = self.cluster.memory_bw_gbs / self.model.weight_read_gb();
         assert!(
             theoretical_tps > 5.0,
-            "theoretical decode TPS too low: {theoretical_tps:.1}. Check memory_bw_gbs and weight_read_gb"
+            "theoretical decode TPS too low: {theoretical_tps:.1}. Check memory_bw_gbs and active_params_b"
         );
     }
 }

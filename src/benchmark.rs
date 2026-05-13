@@ -33,7 +33,7 @@ impl BenchmarkRunner {
 
         // 2. Roofline analysis
         let bw = cfg.cluster.memory_bw_gbs;
-        let active_w = cfg.model.active_params_b * cfg.model.bytes_per_weight;
+        let active_w = cfg.model.weight_read_gb();
         let decode_tps = bw / active_w.max(0.1);
         report.theoretical_decode_tps = decode_tps;
 

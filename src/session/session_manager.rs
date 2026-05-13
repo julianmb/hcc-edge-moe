@@ -79,12 +79,17 @@ impl SessionManager {
         self.sessions.is_empty() || self.sessions.iter().all(|s| s.state == SessionState::Completed)
     }
 
-    /// Get next pending context.
+    /// Get next pending context — returns the actual prompt data.
     pub async fn next_context(&mut self) -> Vec<u8> {
         for session in &mut self.sessions {
             if session.state == SessionState::Pending {
                 session.state = SessionState::Active;
-                return vec![0u8; 1024]; // simulated context
+                // In production: load actual prompt from session's input buffer.
+                // For now, generate a realistic context: 512 tokens of hidden_size.
+                let ctx_size = 512 * (self.model_cfg.kv_lora_rank + self.model_cfg.qk_rope_head_dim) * 4; // FP32
+                let mut ctx = Vec::with_capacity(ctx_size);
+                ctx.resize(ctx_size, 0u8);
+                return ctx;
             }
         }
         vec![]

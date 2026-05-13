@@ -2,7 +2,7 @@
 # Ref: "Heterogeneous Compute Cascades" (Beltran, April 2026)
 
 [cluster]
-node_count = 2
+node_count = 1
 node_id = 0
 memory_per_node_gb = 128.0
 memory_bw_gbs = 212.0

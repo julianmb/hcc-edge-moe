@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <b>Run 400B-parameter MoE language models on two $2,600 ClawRig (Strix Halo) systems connected by USB4 — no datacenter required.</b>
+  <b>Run 400B-parameter MoE language models on ClawRig (Strix Halo) — single-node or dual-node over USB4, no datacenter required.</b>
   <br>
   <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade Strix Halo workstation with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference
 </p>
@@ -26,11 +26,10 @@ Large language models need enormous amounts of memory.
 | Mac Studio (M2 Ultra, 192 GB) | 192 GB | $12,000 | 240 W | ⚠️ Tight |
 | DGX A100 (used) | 320 GB HBM2e | $80K–$120K | 6,500 W | ✅ Datacenter only |
 | DGX H100 (new) | 640 GB HBM3 | $210K–$307K | 10,200 W | ✅ Datacenter only |
-| **2× ClawRig (Strix Halo) + HCC** | **256 GB LPDDR5x** | **$5,200** | **240 W** | **✅ Desk** |
+| **ClawRig (Strix Halo) + HCC** (single) | **128 GB LPDDR5x** | **$2,600** | **120 W** | **✅ Up to 230B models** |
+| **2× ClawRig (Strix Halo) + HCC** (dual) | **256 GB LPDDR5x** | **$5,200** | **240 W** | **✅ Up to 400B models** |
 
-A single 380B-parameter MoE model needs ~161 GB (UD-Q3KM quantized). That doesn't fit on any consumer GPU. The traditional answer is an $100K+ DGX system in a datacenter.
-
-**This project is the alternative**: two AMD Ryzen AI MAX+ 395 "Strix Halo" systems, each with 128 GB of unified memory, connected by a $30 USB4 cable. The software challenge is making the USB4 link fast enough — and that's what HCC solves.
+A single Strix Halo runs models up to ~230B (e.g., MiniMax-M2.5 at 110 GB). Two connected by a $30 USB4 cable reach 256 GB for 400B-class models like GLM-5.1. The software challenge is making the USB4 link fast enough — and that's what HCC solves.
 
 ---
 
@@ -145,16 +144,15 @@ requires a GRUB boot parameter change and reboot.
 
 ## Cost Comparison
 
-The economics are the point. Two ClawRig (Strix Halo) systems at **$2,600 each**:
+| Platform | CAPEX | Power | $/GB |
+|---|---|---|---|
+| **ClawRig (Strix Halo) + HCC** (single) | **$2,600** | **120 W** | **$20.31** |
+| **2× ClawRig (Strix Halo) + HCC** (dual) | **$5,200** | **240 W** | **$20.31** |
+| DGX A100 (used) | $80K–$120K | 6,500 W | $312 |
+| DGX H100 (new) | $210K–$307K | 10,200 W | $391 |
+| Mac Studio (2× M2 Ultra) | $12,000 | 240 W | $31.25 |
 
-| Platform | CAPEX | Power | $/GB | Annual power cost |
-|---|---|---|---|---|
-| **2× ClawRig (Strix Halo) + HCC** | **$5,200** | **240 W** | **$20.31** | **$315** |
-| DGX A100 (used) | $80K–$120K | 6,500 W | $312 | $8,541 |
-| DGX H100 (new) | $210K–$307K | 10,200 W | $391 | $13,402 |
-| Mac Studio (2× M2 Ultra) | $12,000 | 240 W | $31.25 | $315 |
-
-At scale: a 20-unit HCC fleet matches a DGX A100's aggregate throughput (~500 T/s) at comparable total cost (~$123K vs ~$125K), consuming **26× less power** and running on standard wall outlets.
+At scale: a 20-unit single-node HCC fleet (20× $2,600 = $52K) delivers ~220 T/s aggregate at 2,400 W — no datacenter needed.
 
 ---
 
@@ -209,8 +207,8 @@ src/
 
 ### Prerequisites
 
-- 2× AMD Ryzen AI MAX+ 395 systems, 128 GB each
-- USB4 cable (dual bonded recommended)
+- 1 or 2× AMD Ryzen AI MAX+ 395 systems, 128 GB each
+- USB4 cable (dual bonded recommended, only for dual-node)
 - Ubuntu 24.04+, ROCm 7.2.3+, llama.cpp with HIP + RPC support
 
 ### Install
@@ -237,11 +235,12 @@ hipblaslt = true
 ### Run
 
 ```bash
-# Node 1
-hcch run --config config.toml --node-id 0
+# Single node (default: node_count = 1 in config.toml)
+hcch run
 
-# Node 2
-hcch run --config config.toml --node-id 1
+# Dual node
+hcch run --node-id 0   # Node 1
+hcch run --node-id 1   # Node 2
 ```
 
 ### Test
@@ -270,5 +269,5 @@ cargo build --release  # Zero errors
 ---
 
 <p align="center">
-  <i>Two $2,600 ClawRig units. One USB4 cable. Zero datacenters.</i>
+  <i>One ClawRig. Or two. Zero datacenters.</i>
 </p>

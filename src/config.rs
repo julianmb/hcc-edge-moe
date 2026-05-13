@@ -130,7 +130,7 @@ impl Default for HccConfig {
     fn default() -> Self {
         Self {
             cluster: ClusterConfig {
-                node_count: 2,
+                node_count: 1,
                 node_id: 0,
                 // Measured: Strix Halo 128 GB LPDDR5x-8000 systems
                 memory_per_node_gb: 128.0,
@@ -208,7 +208,7 @@ impl ModelConfig {
 impl HccConfig {
     /// Validate all configuration parameters. Panics with a clear message on invalid values.
     pub fn validate(&self) {
-        assert!(self.cluster.node_count >= 2, "HCC requires ≥2 nodes (paper: 2)");
+        assert!(self.cluster.node_count >= 1, "need at least 1 node");
         assert!(
             self.cluster.node_id < self.cluster.node_count,
             "node_id {} out of range [0, {})",

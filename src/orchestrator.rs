@@ -48,9 +48,17 @@ impl HccOrchestrator {
     pub async fn new(cfg: HccConfig) -> anyhow::Result<Self> {
         cfg.validate();
 
-        let transport = Arc::new(Mutex::new(
-            Usb4Transport::new(&cfg.interconnect, cfg.cluster.node_count, cfg.cluster.node_id).await?,
-        ));
+        let transport = if cfg.cluster.node_count > 1 {
+            Arc::new(Mutex::new(
+                Usb4Transport::new(&cfg.interconnect, cfg.cluster.node_count, cfg.cluster.node_id).await?,
+            ))
+        } else {
+            // Single-node mode: no USB4 transport needed
+            tracing::info!("Single-node mode: all compute local");
+            Arc::new(Mutex::new(
+                Usb4Transport::new(&cfg.interconnect, 1, 0).await?,
+            ))
+        };
 
         let kv_cache = Arc::new(Mutex::new(
             MixedPrecisionKVCache::new(cfg.model.kv_lora_rank + cfg.model.qk_rope_head_dim),
@@ -136,20 +144,28 @@ impl HccOrchestrator {
         }
     }
 
-    /// HCC pipeline: NPU drafts, iGPU verifies over USB4.
+    /// HCC pipeline: NPU drafts, iGPU verifies over USB4 (or local in single-node).
     async fn run_hcc(&mut self) -> anyhow::Result<()> {
         let node_id = self.cfg.cluster.node_id;
+        let single = self.cfg.cluster.node_count == 1;
 
-        if node_id == 0 {
+        if single || node_id == 0 {
             let raw = self.session_manager.lock().await.next_context().await;
             let compressed = self.compressor.lock().await.compress(&raw).await?;
-            let ttft_start = std::time::Instant::now();
-            self.transport.lock().await.send_to_node(1, &compressed).await?;
 
-            metrics::record_ttft(raw.len(), ttft_start.elapsed().as_secs_f64() * 1000.0);
+            if !single {
+                let ttft_start = std::time::Instant::now();
+                self.transport.lock().await.send_to_node(1, &compressed).await?;
+                metrics::record_ttft(raw.len(), ttft_start.elapsed().as_secs_f64() * 1000.0);
+            }
 
             if let Some(draft) = &self.draft_runner {
                 draft.lock().await.prefill_context(&compressed).await?;
+            }
+            if single {
+                if let Some(target) = &self.target_runner {
+                    target.lock().await.prefill(&compressed).await?;
+                }
             }
         } else {
             let desc = self.transport.lock().await.recv_dmabuf().await?;

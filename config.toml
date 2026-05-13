@@ -8,8 +8,8 @@ memory_per_node_gb = 128.0
 memory_bw_gbs = 212.0
 
 [model]
-model_name = "GLM-4.7-Flash"
-checkpoint_path = "/var/lib/lemonade/.cache/huggingface/hub/models--unsloth--GLM-4.7-Flash-GGUF/snapshots/0d32489ecb9db6d2a4fc93bd27ef01519f95474d/GLM-4.7-Flash-UD-Q4_K_XL.gguf"
+model_name = "GLM-5.1-REAP-50"
+checkpoint_path = "/models/glm-5.1-reap-50-udq3km"
 hidden_size = 6144
 num_layers = 78
 num_experts = 128

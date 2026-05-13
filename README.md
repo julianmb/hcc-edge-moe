@@ -1,4 +1,4 @@
-# HCC: Run GLM-4 on Cheap Hardware
+# Heterogeneous Compute Cascade (HCC)
 
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.19562855-blue)](https://doi.org/10.5281/zenodo.19562855)
 ![Rust](https://img.shields.io/badge/rust-1.89%2B-orange)
@@ -7,35 +7,28 @@
 ![Strix Halo](https://img.shields.io/badge/ClawRig-Strix%20Halo-blue)
 
 <p align="center">
-  <b>Run GLM-4 on a $3,000 desktop — not a $100,000 datacenter GPU.</b>
+  <b>Run 400B-parameter MoE language models like GLM-5 on two $3,000 AMD Strix Halo workstations connected by USB4 — no datacenter required.</b>
   <br>
-  <b>Try it live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — GLM-4 running on <a href="https://clawrig.com">ClawRig</a>, a Strix Halo workstation with 10 Gbps, dual USB4, custom thermals, and tuned BIOS
-</p>
-
-<p align="center">
-  <b>Run 400B-parameter MoE language models on ClawRig (Strix Halo) — single-node or dual-node over USB4, no datacenter required.</b>
-  <br>
-  <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade Strix Halo workstation with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference
+  <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade Strix Halo workstation with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference.
 </p>
 
 ---
 
 ## Why this exists
 
-GLM-4 is a powerful open-weight language model. To run it, most people think you need expensive hardware.
+Frontier language models (300B+ parameters like GLM-5) need enormous amounts of memory.
 
-You don't.
-
-| Hardware | Memory | Cost | Power | Can run GLM-4? |
+| Hardware | VRAM | Cost | Power | Can run GLM-5 (370B)? |
 |---|---|---|---|---|
 | RTX 4090 | 24 GB | $1,600 | 450 W | ❌ Not enough VRAM |
 | RTX 5090 | 32 GB | $2,000 | 575 W | ❌ Still not enough |
-| Mac Studio (M2 Ultra) | 192 GB | $12,000 | 240 W | ✅ Expensive |
-| DGX A100 (used) | 320 GB | $80K–$120K | 6,500 W | ✅ Datacenter required |
-| **ClawRig (Strix Halo)** | **128 GB** | **$2,995** | **120 W** | **✅ Fits on one machine** |
-| **2× ClawRig (USB4 cluster)** | **256 GB** | **$5,990** | **240 W** | **✅ Fits the largest models** |
+| Mac Studio (M2 Ultra) | 192 GB | $12,000 | 240 W | ❌ Doesn't fit |
+| DGX A100 (used) | 320 GB HBM2e | $80K–$120K | 6,500 W | ✅ Datacenter required |
+| **2× ClawRig (USB4 cluster)** | **256 GB LPDDR5x** | **$5,990** | **240 W** | **✅ Fits on your desk** |
 
-A single Strix Halo has 128 GB of unified memory — enough for GLM-4 quantized to fit comfortably. Two connected by a $30 USB4 cable reach 256 GB for even larger models. No datacenter. No $100K GPU. Just a desktop that plugs into a wall outlet.
+A single 380B-parameter MoE model needs ~161 GB (UD-Q3KM quantized). That doesn't fit on any consumer GPU. The traditional answer is an $100K+ DGX system in a datacenter.
+
+**This project is the alternative**: two AMD Ryzen AI MAX+ 395 "Strix Halo" systems, each with 128 GB of unified memory, connected by a $30 USB4 cable to create a 256 GB cluster. The software challenge is making the USB4 link fast enough without stalling the GPUs — and that's exactly what HCC solves.
 
 ---
 
@@ -138,14 +131,23 @@ requires a GRUB boot parameter change and reboot.
 
 **Impact**: P99 RTT drops from 97 µs to 27.85 µs (71% reduction, paper Table 2).
 
-### GLM-4 Performance (measured on a single $3,000 ClawRig)
+### Benchmarks (measured on a single $3,000 ClawRig)
 
-| Model | Size | Type | Prompt (T/s) | Generation (T/s) |
-|---|---|---|---|---|
-| GLM-4.7-Flash | 30B / 3B active | MoE reasoning | 163.3 | 66.8 |
-| GLM-4.7 base | 355B / 32B active | MoE flagship | — | ~52 (estimate) |
+| Model | Size | Best PP (T/s) | Best TG (T/s) |
+|---|---|---|---|
+| GLM-4.7-Flash | 30B / 3B active (MoE) | 163.3 | 66.8 |
+| Qwen3.5-35B-A3B (MoE) | 35B / 3B active | 150.0 | 67.6 |
+| Qwen3.6-35B-A3B (MoE) | 35B / 3B active | 176.2 | 57.9 |
+| GPT-OSS 120B (MoE) | 120B / 12B active | 136.9 | 58.4 |
 
-These are real numbers from a single Strix Halo at 120 W. The same model on a DGX A100 would cost 40× more and consume 50× more power — and deliver roughly the same single-stream generation speed, because inference is memory-bandwidth-bound, not compute-bound.
+These are real numbers from a single Strix Halo at 120 W. MoE models benefit from small active parameter counts — the 30B and 35B MoEs both have only ~3B active and run at similar speeds. The same 120B model on a DGX A100 would cost 40× more and consume 50× more power.
+
+## Target Model
+
+| Model | Params | Active | Quant | Size | Runs on |
+|---|---|---|---|---|---|
+| **GLM-5.1-REAP-50** | ~380B | 40B | UD-Q3KM | ~161 GB | **Dual ClawRig** (256 GB) |
+| MiniMax-M2.5 | 230B | 10B | UD-Q3KM | ~110 GB | Single ClawRig (>40 T/s) |
 
 
 

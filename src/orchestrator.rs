@@ -195,7 +195,16 @@ impl HccOrchestrator {
             if self.session_manager.lock().await.all_completed() { break; }
 
             if let Some(draft) = &self.draft_runner {
-                let tokens = draft.lock().await.generate_drafts(self.speculative_engine.draft_len).await?;
+                // Speculative Tree Attention (v0.3.0)
+                let draft_tree = draft.lock().await.generate_draft_tree(self.speculative_engine.draft_len as u32, 2).await?;
+                
+                // Flatten the tree for transport
+                let tokens: Vec<_> = draft_tree.nodes.iter().skip(1).map(|n| crate::decoding::speculative::DraftToken {
+                    token_id: n.token_id,
+                    probability: n.probability,
+                    kv_state: vec![],
+                }).collect();
+                
                 self.total_drafted += tokens.len();
 
                 let cal_embedding = tokens.iter().flat_map(|t| t.kv_state.clone()).collect::<Vec<_>>();

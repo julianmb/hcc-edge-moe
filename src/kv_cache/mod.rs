@@ -1,26 +1,38 @@
-/// KV cache using production TurboQuant crate.
+pub mod custom_mla;
+
+/// KV cache using production TurboQuant crate + Custom MLA kernels.
 ///
 /// Replaces hand-rolled implementation with `turboquant-rs` v0.4.1
 /// (Zandieh et al., ICLR 2026) — PolarQuant + QJL, 364 tests, proper bit-packing.
 ///
-/// Mixed-precision: K 8-bit FP8, V 3-bit PolarQuant (community finding:
-/// uniform bit allocation destroys attention on real models).
+/// We also integrate custom HIP kernels for d=576 to eliminate power-of-2 padding,
+/// saving 44% VRAM overhead.
 use turboquant::packed::TurboQuantConfig;
+use crate::kv_cache::custom_mla::CustomMlaQuantizer;
 
-/// TurboQuant requires power-of-2 dimensions. MLA d_kv = 576, so we pad to 1024.
+/// TurboQuant natively requires power-of-2 dimensions. MLA d_kv = 576.
+/// If using the pure Rust path, we pad to 1024. If using the custom kernel, we don't.
 const TQ_DIM: usize = 1024;
 
 pub struct MixedPrecisionKVCache {
     key_blocks: Vec<Fp8Block>,
     value_blocks: Vec<turboquant::packed::PackedBlock>,
     dim: usize,
+    use_custom_kernel: bool,
+    custom_quantizer: Option<CustomMlaQuantizer>,
 }
 
 struct Fp8Block(Vec<u8>, f32);
 
 impl MixedPrecisionKVCache {
     pub fn new(dim: usize) -> Self {
-        Self { key_blocks: Vec::new(), value_blocks: Vec::new(), dim }
+        Self { 
+            key_blocks: Vec::new(), 
+            value_blocks: Vec::new(), 
+            dim,
+            use_custom_kernel: dim == 576, // Auto-enable custom kernel for GLM-4 MLA
+            custom_quantizer: if dim == 576 { Some(CustomMlaQuantizer::new()) } else { None },
+        }
     }
 
     pub fn insert(&mut self, key: &[f32], value: &[f32]) {

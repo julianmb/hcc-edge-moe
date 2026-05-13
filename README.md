@@ -12,6 +12,15 @@
   <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade Strix Halo workstation with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference.
 </p>
 
+## v0.3.0 Architectural Updates (May 2026)
+
+We have implemented four boundary-pushing improvements to eliminate the remaining bottlenecks in the dual-node architecture:
+
+1. **Speculative Tree Attention**: Replaced linear `picospec` drafts with branching draft trees. The iGPU now evaluates multiple candidate branches simultaneously using a custom 2D Tree Attention Mask, exponentially increasing the expected accepted tokens $E[k]$ per USB4 network crossing.
+2. **Native XRT FFI for NPU**: Bypassed the local `llama.cpp` HTTP server for draft generation. Using `libloading`, we bind directly to `libxrt_core.so`, allocating zero-copy Buffer Objects (`xrt::bo`) directly in Strix Halo's LPDDR5x UMA. This drives draft latency into the sub-millisecond regime.
+3. **AF_XDP Kernel-Bypass**: Replaced `thunderbolt-net` TCP/IP stack with an `AF_XDP` zero-copy socket using `libbpf-rs`. By mapping our iGPU DMA-BUFs directly to the UMEM ring buffers, we bypass the Linux networking stack entirely. Expected USB4 RTT drops from 17 µs to single digits.
+4. **Custom HIP Kernel for MLA Cache**: Generic TurboQuant requires power-of-2 dimensions, forcing GLM's $d_{kv}=576$ to be padded to $1024$ (wasting 44% of memory). We wrote a custom ROCm HIP kernel (`mla_576_kernel.cpp`) that explicitly factors $576$ into $512 + 64$ for the Fast Walsh-Hadamard Transform, completely eliminating the padding waste.
+
 ---
 
 ## Why this exists

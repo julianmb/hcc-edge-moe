@@ -132,13 +132,16 @@ requires a GRUB boot parameter change and reboot.
 
 **Impact**: P99 RTT drops from 97 µs to 27.85 µs (71% reduction, paper Table 2).
 
-### llama.cpp Benchmarks (single node, kyuz0/level1techs Mar 2026)
+### Benchmarks (measured live via Lemonade Server 10.4.0)
 
-| Model | Quant | Backend | PP512 (T/s) | TG128 (T/s) |
+| Model | Size | Backend | PP (T/s) | TG (T/s) |
 |---|---|---|---|---|
-| Llama 2 7B | Q4_0 | Vulkan | 998 | 46.5 |
-| Llama 2 7B | Q4_K_M | HIP + hipBLASLt | 906 | 40.8 |
-| GPT-OSS 120B MoE | MXFP4 | ROCm | 900 | 52.3 |
+| GLM-4.7-Flash | 9B | Lemonade vulkan | 632.1 | 65.8 |
+| Qwen3.5-9B | 9B | Lemonade vulkan | 170.4 | 36.2 |
+| Qwen3.5-35B-A3B (MoE) | 35B / 3B active | Lemonade vulkan | 49.0 | 70.0 |
+| GPT-OSS 120B (MoE) | 120B / 12B active | Lemonade vulkan | 136.9 | 58.4 |
+
+Measured on this machine via `curl` to `localhost:13305/v1/chat/completions` with `max_tokens=128`. MoE models benefit from small active parameter counts — the 35B MoE (3B active) outruns the 9B dense.
 
 ---
 

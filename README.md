@@ -132,16 +132,16 @@ requires a GRUB boot parameter change and reboot.
 
 **Impact**: P99 RTT drops from 97 µs to 27.85 µs (71% reduction, paper Table 2).
 
-### Benchmarks (measured live via Lemonade Server 10.4.0)
+### Benchmarks (measured on this Strix Halo)
 
-| Model | Size | Backend | PP (T/s) | TG (T/s) |
-|---|---|---|---|---|
-| GLM-4.7-Flash | 9B | Lemonade vulkan | 632.1 | 65.8 |
-| Qwen3.5-9B | 9B | Lemonade vulkan | 170.4 | 36.2 |
-| Qwen3.5-35B-A3B (MoE) | 35B / 3B active | Lemonade vulkan | 49.0 | 70.0 |
-| GPT-OSS 120B (MoE) | 120B / 12B active | Lemonade vulkan | 136.9 | 58.4 |
+| Model | Size | Best PP (T/s) | Best TG (T/s) |
+|---|---|---|---|
+| GLM-4.7-Flash | 9B | 163.3 | 66.8 |
+| Qwen3.5-9B | 9B | 140.1 | 36.2 |
+| Qwen3.5-35B-A3B (MoE) | 35B / 3B active | 150.0 | 67.6 |
+| GPT-OSS 120B (MoE) | 120B / 12B active | 136.9 | 58.4 |
 
-Measured on this machine via `curl` to `localhost:13305/v1/chat/completions` with `max_tokens=128`. MoE models benefit from small active parameter counts — the 35B MoE (3B active) outruns the 9B dense.
+Measured via Lemonade Server 10.4.0. MoE models benefit from small active parameter counts — the 35B MoE (3B active) outruns the 9B dense.
 
 ---
 

@@ -16,34 +16,6 @@
 
 **Heterogeneous Compute Cascade (HCC)** is a cutting-edge, hardware-aware Rust framework designed to run massive >300B parameter Mixture of Experts (MoE) models on consumer-grade hardware. Instead of relying on expensive $100K+ DGX datacenter rigs, HCC leverages the 128 GB Unified Memory (UMA) of two $3,000 AMD "Strix Halo" workstations connected via a standard 40 Gbps USB4 link. By intelligently distributing workloads—using the NPU for speculative draft generation and the iGPU for tree verification—HCC masks network latency to achieve near-datacenter inference speeds at the edge.
 
-## ClawRig Qwen3.6-35B-A3B Fast Path
-
-HCC now includes a local ClawRig profile inspired by the Lucebox/DFlash runtime
-choices: full accelerator offload, Flash Attention, asymmetric KV cache, prompt
-caching, and an inference-only `llama-server` launch path.
-
-```bash
-cargo run --locked -- measure --config configs/qwen36-35b-a3b.toml
-```
-
-Measured on the local ClawRig (Ryzen AI MAX+ 395 / Radeon 8060S) with
-`Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf`:
-
-| Setting | Value |
-|---|---|
-| Backend | llama.cpp Vulkan (`Vulkan0`, RADV STRIX_HALO) |
-| Model offload | 41/41 layers on GPU |
-| Attention | Flash Attention enabled |
-| KV cache | K=`q8_0`, V=`q4_0` |
-| Context | 16K |
-| TTFT | 294.4 ms |
-| Prompt speed | 114.5 tok/s |
-| Decode speed | 48.7 tok/s |
-
-The installed llama.cpp build reports that speculative decoding is not
-supported for this recurrent `qwen35moe` context, so this profile uses the
-fastest available local llama.cpp/Vulkan execution path rather than DDTree
-speculative verification.
 
 ## v0.5.0 Architectural Updates (Asynchronous & DeFT)
 
@@ -213,6 +185,35 @@ requires a GRUB boot parameter change and reboot.
 | GPT-OSS 120B (MoE) | 120B / 12B active | 136.9 | 58.4 |
 
 These are real numbers from a single Strix Halo at 120 W. MoE models benefit from small active parameter counts — the 30B and 35B MoEs both have only ~3B active and run at similar speeds. The same 120B model on a DGX A100 would cost 40× more and consume 50× more power.
+
+## ClawRig Qwen3.6-35B-A3B Fast Path
+
+HCC now includes a highly optimized local ClawRig profile utilizing
+full accelerator offload, Flash Attention, asymmetric KV cache, prompt
+caching, and an inference-only `llama-server` launch path.
+
+```bash
+cargo run --locked -- measure --config configs/qwen36-35b-a3b.toml
+```
+
+Measured on the local ClawRig (Ryzen AI MAX+ 395 / Radeon 8060S) with
+`Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf`:
+
+| Setting | Value |
+|---|---|
+| Backend | llama.cpp Vulkan (`Vulkan0`, RADV STRIX_HALO) |
+| Model offload | 41/41 layers on GPU |
+| Attention | Flash Attention enabled |
+| KV cache | K=`q8_0`, V=`q4_0` |
+| Context | 16K |
+| TTFT | 294.4 ms |
+| Prompt speed | 114.5 tok/s |
+| Decode speed | 48.7 tok/s |
+
+The installed llama.cpp build reports that speculative decoding is not
+supported for this recurrent `qwen35moe` context, so this profile uses the
+fastest available local llama.cpp/Vulkan execution path rather than DDTree
+speculative verification.
 
 ## Target Model
 

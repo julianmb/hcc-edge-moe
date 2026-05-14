@@ -2,9 +2,8 @@
 ///
 /// The local ClawRig setup currently exposes llama.cpp through its Vulkan
 /// backend. This runner keeps the launch flags explicit so we can apply the
-/// same class of optimizations Lucebox uses in its daemon path: full device
-/// offload, Flash Attention, compact asymmetric KV, prompt cache reuse, and
-/// inference-only server mode.
+/// standard optimizations: full device offload, Flash Attention, compact
+/// asymmetric KV, prompt cache reuse, and inference-only server mode.
 use crate::config::BackendConfig;
 use anyhow::Context;
 use serde_json::json;

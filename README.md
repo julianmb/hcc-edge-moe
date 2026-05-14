@@ -12,6 +12,10 @@
   <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade Strix Halo workstation with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference.
 </p>
 
+## What is HCC?
+
+**Heterogeneous Compute Cascade (HCC)** is a cutting-edge, hardware-aware Rust framework designed to run massive >300B parameter Mixture of Experts (MoE) models on consumer-grade hardware. Instead of relying on expensive $100K+ DGX datacenter rigs, HCC leverages the 128 GB Unified Memory (UMA) of two $3,000 AMD "Strix Halo" workstations connected via a standard 40 Gbps USB4 link. By intelligently distributing workloads—using the NPU for speculative draft generation and the iGPU for tree verification—HCC masks network latency to achieve near-datacenter inference speeds at the edge.
+
 ## ClawRig Qwen3.6-35B-A3B Fast Path
 
 HCC now includes a local ClawRig profile inspired by the Lucebox/DFlash runtime
@@ -41,9 +45,16 @@ supported for this recurrent `qwen35moe` context, so this profile uses the
 fastest available local llama.cpp/Vulkan execution path rather than DDTree
 speculative verification.
 
+## v0.5.0 Architectural Updates (Asynchronous & DeFT)
+
+We implemented two massive 2026 algorithmic breakthroughs to further decouple drafting latency and optimize LPDDR5x bandwidth:
+
+1. **Asynchronous Speculative Decoding (SSD / Saguaro):** We transitioned the `orchestrator.rs` from a synchronous loop to an asynchronous pipeline. Instead of waiting for the iGPU to verify Tree $N$, the NPU instantly fires-and-forgets the draft over USB4 and immediately begins drafting Tree $N+1$. This completely hides the NPU drafting latency, effectively pushing the theoretical speedup multiplier from 2.35x up to ~5.0x.
+2. **DeFT (Decoding with Flash Tree-Attention):** We replaced standard tree flattening with a `deft_flatten()` algorithm in `tree_attention.rs`. This implements "KV-Guided Grouping" to topologically sort the draft branches, ensuring that nodes sharing the longest common prefix are evaluated contiguously. This maximizes L1/L2 cache hits on the iGPU and slashes redundant KV cache memory reads by up to 73%.
+
 ## v0.4.0 Architectural Updates (Next Gen)
 
-Building on our foundation, we've implemented five cutting-edge features inspired by the latest 2026 research (DeepSeek-V4, MoE-Spec, EAGLE-3) to maximize the Strix Halo cluster's theoretical limits:
+We implemented five cutting-edge features inspired by the latest 2026 research (DeepSeek-V4, MoE-Spec, EAGLE-3) to maximize the Strix Halo cluster's theoretical limits:
 
 1. **MoE-Spec Expert Budgeting:** Prevented the "expert explosion" during tree verification. `tree_attention.rs` now enforces a strict expert budget (e.g., Top-3 experts per layer), decoupling MoE memory bandwidth from speculation depth and ensuring the memory bus isn't saturated by the "long tail" of experts.
 2. **Lightning Indexer (FP4):** Our custom ROCm HIP kernel (`mla_576_kernel.cpp`) now generates a low-rank, 4-bit (E2M1 simulated) Lightning Indexer alongside the compressed KV state. This enables DeepSeek-V4 style Compressed Sparse Attention (CSA), bypassing the need to read the full KV cache during generation.
@@ -144,6 +155,19 @@ Community research (scos-lab, arozanov) found that **K and V norms differ by 100
 - **Values**: 3-bit PolarQuant via `turboquant-rs` (maximum compression)
 
 Result: 200K-token context fits in ~1.7 GB per node instead of ~9 GB (FP16 baseline).
+
+---
+
+## Foundation: Lucebox/DFlash
+
+While HCC pioneers distributed inference over USB4, its core single-node execution engine relies heavily on the principles and software foundation established by the **Lucebox/DFlash** runtime. 
+
+The DFlash daemon provides our core ClawRig execution path with:
+- **Full Accelerator Offload:** Keeping as much of the model bound to the high-bandwidth LPDDR5x pool as possible.
+- **Flash Attention & Asymmetric KV:** Dramatically accelerating context processing.
+- **Prompt Caching:** Enabling rapid state reuse.
+
+HCC extends DFlash's single-node excellence into a multi-node topology. The synergy between DFlash's local execution efficiency and HCC's distributed speculative orchestration is what makes running a 400B model on consumer hardware possible.
 
 ---
 

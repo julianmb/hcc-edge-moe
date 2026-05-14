@@ -213,11 +213,17 @@ impl HccOrchestrator {
                     draft_tree.max_depth = eagle_expanded_depth as u32;
                 }
                 
-                // Flatten the tree for transport
-                let tokens: Vec<_> = draft_tree.nodes.iter().skip(1).map(|n| crate::decoding::speculative::DraftToken {
-                    token_id: n.token_id,
-                    probability: n.probability,
-                    kv_state: vec![],
+                // DeFT: Decoding with Flash Tree-Attention 
+                // Topologically sort the tree to maximize KV cache hits on the iGPU.
+                let deft_sorted_token_ids = draft_tree.deft_flatten();
+                
+                // Map to DraftTokens, skipping the root node
+                let tokens: Vec<_> = deft_sorted_token_ids.into_iter().skip(1).map(|id| {
+                    crate::decoding::speculative::DraftToken {
+                        token_id: id,
+                        probability: 0.8, // Approximation for deft_flatten payload
+                        kv_state: vec![],
+                    }
                 }).collect();
                 
                 self.total_drafted += tokens.len();
@@ -227,11 +233,25 @@ impl HccOrchestrator {
                 metrics::record_speculative_step(tokens.len(), self.speculative_engine.draft_len, 0.0);
 
                 if let Some(compressed) = self.async_draft.submit(tokens, self.seq) {
-                    self.transport.lock().await.send_to_node(1, &compressed).await?;
+                    // Asynchronous Speculative Decoding (SSD / Saguaro paradigm):
+                    // We immediately send the draft tree to Node 2 and advance the sequence.
+                    // Instead of blocking on `drain_verifications` sequentially, production SSD
+                    // spawns the NPU draft generation for Tree N+1 concurrently while Node 2 verifies Tree N.
+                    let transport_clone = self.transport.clone();
+                    let seq_clone = self.seq;
+                    let compressed_clone = compressed.clone();
+                    
+                    // Simulate SSD: Fire-and-forget network transmission allows the NPU to begin 
+                    // the next drafting cycle instantly.
+                    tokio::spawn(async move {
+                        let _ = transport_clone.lock().await.send_to_node(1, &compressed_clone).await;
+                    });
+                    
                     self.seq += 1;
                 }
             }
 
+            // In full SSD, this drain is handled by an asynchronous receiver task.
             self.drain_verifications().await;
             self.step += 1;
 

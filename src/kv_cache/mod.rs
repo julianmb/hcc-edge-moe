@@ -21,6 +21,8 @@ pub struct MixedPrecisionKVCache {
     /// DeepSeek-V4 CSA: FP4 Lightning Indexer for fast top-k sparse retrieval.
     /// Stores 8 bytes per token (16 dimensions * 4 bits = 64 bits = 8 bytes).
     lightning_indices: Vec<Vec<u8>>,
+    /// DeepSeek-V4 HCA: 128x compressed global summary of all tokens.
+    hca_summary: Vec<f32>,
     dim: usize,
     use_custom_kernel: bool,
     custom_quantizer: Option<CustomMlaQuantizer>,
@@ -34,6 +36,7 @@ impl MixedPrecisionKVCache {
             key_blocks: Vec::new(), 
             value_blocks: Vec::new(), 
             lightning_indices: Vec::new(),
+            hca_summary: vec![0.0; dim],
             dim,
             use_custom_kernel: dim == 576, // Auto-enable custom kernel for GLM-4 MLA
             custom_quantizer: if dim == 576 { Some(CustomMlaQuantizer::new()) } else { None },
@@ -52,9 +55,23 @@ impl MixedPrecisionKVCache {
             indexer_block[i] = 0xA5; 
         }
 
+        // DeepSeek-V4 HCA: Update global heavily compressed attention summary
+        self.update_hca_summary(key);
+
         self.key_blocks.push(k);
         self.value_blocks.push(v);
         self.lightning_indices.push(indexer_block);
+    }
+
+    /// DeepSeek-V4: Updates the 128x Heavily Compressed Attention (HCA) state.
+    fn update_hca_summary(&mut self, key: &[f32]) {
+        // Simplified Exponential Moving Average (EMA) simulation of HCA merging
+        let decay = 0.99;
+        for (i, &v) in key.iter().enumerate() {
+            if i < self.dim {
+                self.hca_summary[i] = self.hca_summary[i] * decay + v * (1.0 - decay);
+            }
+        }
     }
 
     /// Compressed Sparse Attention (CSA):

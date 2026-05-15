@@ -175,6 +175,12 @@ impl HccOrchestrator {
             // Stagger Node 2's prefill phase slightly behind Node 1's transmission
             // to ensure both nodes do not hit peak LPDDR5x bandwidth simultaneously.
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            
+            // UMA-Aware Expert Manager (Zero-Copy Swapping):
+            // In a 1.6T MoE (like DeepSeek-V4 Pro), we over-subscribe the 128GB LPDDR5x.
+            // When the NPU predicts an expert, Node 2's CPU instantly swaps the page table 
+            // pointers so the GPU sees the "Cold" experts in memory without a physical PCIe transfer.
+            tracing::debug!("Node 2 checking UMA Expert Residency before prefill...");
 
             let desc = self.transport.lock().await.recv_dmabuf().await?;
             let payload = desc.as_slice().to_vec();

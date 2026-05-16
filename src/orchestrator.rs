@@ -13,6 +13,7 @@ use crate::npu::context_compressor::ContextCompressor;
 use crate::session::metrics;
 use crate::session::session_manager::SessionManager;
 use crate::session::agentic::AgenticOrchestrator;
+use crate::npu::router::NpuMoeRouter;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -35,6 +36,7 @@ pub struct HccOrchestrator {
     kv_cache: Arc<Mutex<MixedPrecisionKVCache>>,
     compressor: Arc<Mutex<ContextCompressor>>,
     calibrator: Arc<Mutex<DraftCalibrator>>,
+    moe_router: Option<Arc<Mutex<NpuMoeRouter>>>,
     speculative_engine: SpeculativeEngine,
     dovetail: Option<DovetailPipeline>,
     async_draft: AsyncDraftStage,
@@ -96,6 +98,13 @@ impl HccOrchestrator {
 
         let compressor = Arc::new(Mutex::new(ContextCompressor::new()));
         let calibrator = Arc::new(Mutex::new(DraftCalibrator::new()));
+        
+        let moe_router = if cfg.model.num_experts > 1 {
+            // Only initialize NPU MoE router for actual MoE models
+            NpuMoeRouter::new(cfg.model.num_experts, cfg.model.top_k).ok().map(|r| Arc::new(Mutex::new(r)))
+        } else {
+            None
+        };
 
         let speculative_engine = SpeculativeEngine::new(
             cfg.speculative.draft_len,
@@ -126,7 +135,7 @@ impl HccOrchestrator {
 
         Ok(Self {
             cfg, draft_runner, target_runner, migraphx, transport, kv_cache,
-            compressor, calibrator, speculative_engine, dovetail, async_draft,
+            compressor, calibrator, moe_router, speculative_engine, dovetail, async_draft,
             session_manager, agentic_orchestrator, step: 0, seq: 0, total_accepted: 0, total_drafted: 0,
         })
     }
@@ -241,7 +250,14 @@ impl HccOrchestrator {
                 self.total_drafted += tokens.len();
 
                 let cal_embedding = tokens.iter().flat_map(|t| t.kv_state.clone()).collect::<Vec<_>>();
-                self.calibrator.lock().await.observe_prompt(cal_embedding);
+                self.calibrator.lock().await.observe_prompt(cal_embedding.clone());
+                
+                // v0.7.1: NPU-Offloaded MoE Routing
+                if let Some(router) = &self.moe_router {
+                    // Compute expert routing ahead of time for the iGPU
+                    let _ = router.lock().await.compute_routing(&cal_embedding, tokens.len());
+                }
+
                 metrics::record_speculative_step(tokens.len(), self.speculative_engine.draft_len, 0.0);
 
                 if let Some(compressed) = self.async_draft.submit(tokens, self.seq) {
@@ -285,11 +301,16 @@ impl HccOrchestrator {
                 Some(packet) => {
                     if let Some(msg) = Usb4Transport::deserialize_msg(&packet.payload) {
                         match msg {
-                            HccMessage::VerificationResult { accepted_prefix_len, .. } => {
+                            HccMessage::VerificationResult { accepted_prefix_len, state_residual_1bit, .. } => {
                                 let accepted = accepted_prefix_len as usize;
                                 self.total_accepted += accepted;
                                 self.async_draft.verify(accepted);
                                 self.agentic_orchestrator.commit_accepted_tokens(accepted);
+                                
+                                // v0.7.1: Continuous Speculative KV-Correction
+                                if let Some(residual) = state_residual_1bit {
+                                    self.calibrator.lock().await.apply_1bit_correction(&residual, self.cfg.model.hidden_size);
+                                }
                                 
                                 // Feed acceptance rate to Dovetail adaptive tuning
                                 let rate = if self.total_drafted > 0 {

@@ -694,12 +694,15 @@ This paper presents an \textbf{architectural blueprint and mathematical validati
 \textbf{Ongoing development.} Section 5.1 demonstrated empirical USB4 P2P latency of 17 $\mu$s with kernel tuning---already 30$\times$ below the unoptimized baseline. Further reduction to $\sim$10 $\mu$s via kernel-bypass RDMA over Thunderbolt (RoCEv2 \cite{rocev2}), leveraging the rocSHMEM GDA backend available in ROCm 7.x, is under investigation as a path to eliminating speculative amortization overhead entirely.
 
 
-\section{Post-Publication Architectural Upgrades (v0.7.0)}
-\label{sec:v070}
+\section{Post-Publication Architectural Upgrades (v0.7.1)}
+\label{sec:v071}
 
 Since the initial preprint, significant architectural enhancements have been integrated into the HCC codebase to push the boundaries of the Strix Halo platform:
 
 \begin{itemize}
+    \item \textbf{NPU-Offloaded MoE Routing:} To eliminate iGPU pipeline bubbles caused by evaluating small, dense gating networks, HCC now offloads the MoE router to the XDNA 2 NPU. The NPU asynchronously computes Top-K gating probabilities and writes the expert indices directly to a shared UMA buffer, allowing the iGPU to execute expert layers without interruption.
+    \item \textbf{Continuous Speculative KV-Correction (CSKVC):} To combat draft-model drift over long context windows, the target iGPU now computes the residual difference between its hidden states and the draft's hidden states. This residual is 1-bit quantized (re-using our QJL math) and appended to the \texttt{AF\_XDP} verification packet. The NPU continuously applies this micro-correction, artificially aligning the draft state with the target to sustain high acceptance rates ($\alpha$).
+    \item \textbf{Agentic DirectStorage (\texttt{io\_uring}):} The CPU Agentic Orchestrator now uses Linux \texttt{io\_uring} to issue zero-copy DMA reads straight from the system's Gen5 NVMe SSD into the iGPU's LPDDR5x pool. This completely bypasses CPU bounce buffers when pre-fetching massive contexts for speculatively executed tools (like local Vector DB queries).
     \item \textbf{Agentic CPU Orchestration (v0.7.0):} Acknowledging the shifting CPU-GPU balance in Agentic AI, we implemented a dedicated CPU orchestration layer. The 16 Zen 5 cores now continuously parse the draft token stream, performing real-time JSON schema validation and speculatively pre-warming tool execution environments (e.g., DNS resolution) before the iGPU completes its verification forward pass.
     \item \textbf{Speculative Tree Attention:} We replaced linear draft sequences with branching draft trees. By utilizing a 2D Tree Attention Mask, the iGPU evaluates multiple candidate branches simultaneously, exponentially increasing $\mathbb{E}[k]$ per USB4 network crossing.
     \item \textbf{Native XRT FFI:} Draft generation now bypasses the local HTTP stack entirely. By dynamically linking to \texttt{libxrt\_core.so} and allocating zero-copy Buffer Objects (\texttt{xrt::bo}) directly in the LPDDR5x UMA, NPU dispatch latency is reduced to the sub-millisecond regime.

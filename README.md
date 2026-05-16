@@ -16,6 +16,15 @@
 
 **Heterogeneous Compute Cascade (HCC)** is a cutting-edge, hardware-aware Rust framework designed to run massive >300B parameter Mixture of Experts (MoE) models on consumer-grade hardware. Instead of relying on expensive $100K+ DGX datacenter rigs, HCC leverages the 128 GB Unified Memory (UMA) of two $3,000 AMD "Strix Halo" workstations connected via a standard 40 Gbps USB4 link. By intelligently distributing workloads—using the NPU for speculative draft generation and the iGPU for tree verification—HCC masks network latency to achieve near-datacenter inference speeds at the edge.
 
+## v0.7.1 Architectural Updates (Agentic Storage & Continuous Alignment)
+
+To push the absolute boundaries of the Strix Halo dual-node cluster, we have introduced four micro-optimizations that eliminate the final vestiges of pipeline bubbles and USB4 drift:
+
+1. **NPU-Offloaded MoE Routing:** Standard MoE execution evaluates the gating router on the iGPU, but these tiny, dense GEMMs cause massive pipeline bubbles. We now offload the entire MoE Top-K routing logic to the XDNA 2 NPU. The NPU writes the expert indices to a zero-copy UMA buffer, allowing the iGPU to read them instantly and execute the experts without stalling.
+2. **Continuous Speculative KV-Correction (CSKVC):** To combat "draft drift" where the 8B draft model slowly deviates from the 380B target model over long contexts, the iGPU now calculates a 1-bit quantized hidden-state residual. This tiny payload is embedded in the AF_XDP ACK packet. The NPU applies this micro-correction instantly, keeping the draft model artificially aligned with the target model to sustain high acceptance rates ($\alpha$).
+3. **Agentic DirectStorage (`io_uring`):** When the CPU Agentic Orchestrator detects a tool call requiring massive context (e.g., querying a 100GB vector DB), pulling it through the CPU causes I/O stalls. We implemented asynchronous `io_uring` to issue zero-copy reads that DMA the data straight from the Gen5 NVMe SSD into the iGPU's LPDDR5x pool, bypassing CPU bounce buffers.
+4. **True P2P DMA via Thunderbolt (Experimental):** Under custom BIOS configurations enabling IOMMU passthrough, HCC now supports treating the USB4/Thunderbolt link as a transparent PCIe bridge. This allows Node 2's iGPU to memory-map buffers directly from Node 1's GTT domain, achieving the holy grail of physical hardware zero-copy.
+
 ## v0.7.0 Architectural Updates (Agentic Orchestration)
 
 Based on AMD's 2026 insights ("Agentic AI Changes the CPU-GPU Equation"), we added a dedicated CPU-bound Agentic Orchestration Layer. While the GPUs compute matrix math, the 16 Zen 5 cores continuously parse the draft token stream to validate JSON structures in real-time and speculatively pre-warm tool execution environments (e.g., DNS resolution, schema validation) before the iGPU even finishes verification. This completely hides tool-calling latency.

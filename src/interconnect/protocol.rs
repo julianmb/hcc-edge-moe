@@ -29,6 +29,9 @@ pub enum HccMessage {
         accepted_prefix_len: u8,
         logits: Vec<f32>,
         probabilities: Vec<f32>,
+        /// v0.7.1 Continuous KV-Correction (CSKVC): 1-bit quantized residual 
+        /// to align the draft model's hidden states with the target model.
+        state_residual_1bit: Option<Vec<u8>>,
     },
 
     /// KV cache sync message for context update.

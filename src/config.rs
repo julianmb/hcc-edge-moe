@@ -53,6 +53,12 @@ pub struct BackendConfig {
     /// llama.cpp server binary.
     #[serde(default = "default_server_bin")]
     pub server_bin: String,
+    /// Measurement path: "llamacpp-server" or "llamacpp-cli".
+    #[serde(default = "default_measure_engine")]
+    pub measure_engine: String,
+    /// llama.cpp CLI binary for direct single-turn measurements.
+    #[serde(default = "default_cli_bin")]
+    pub cli_bin: String,
     /// Start the server as a child process. Set false to attach to an existing server.
     #[serde(default = "default_true")]
     pub spawn_server: bool,
@@ -142,26 +148,72 @@ pub struct BackendConfig {
     pub extra_args: Vec<String>,
 }
 
-fn default_server_bin() -> String { "llama-server".into() }
-fn default_model_alias() -> String { "hcc-local".into() }
-fn default_device() -> String { "Vulkan0".into() }
-fn default_ctx_size() -> usize { 16_384 }
-fn default_batch_size() -> usize { 2048 }
-fn default_ubatch_size() -> usize { 512 }
-fn default_parallel() -> usize { 1 }
-fn default_threads() -> isize { -1 }
-fn default_poll() -> usize { 50 }
-fn default_flash_attn() -> String { "on".into() }
-fn default_cache_type_k() -> String { "q8_0".into() }
-fn default_cache_type_v() -> String { "q4_0".into() }
-fn default_gpu_layers() -> String { "all".into() }
-fn default_fit_target_mib() -> usize { 4096 }
-fn default_fit_ctx() -> usize { 4096 }
-fn default_cache_reuse() -> usize { 256 }
-fn default_reasoning() -> String { "off".into() }
-fn default_spec_type() -> String { "none".into() }
-fn default_startup_timeout_s() -> u64 { 240 }
-fn default_true() -> bool { true }
+fn default_server_bin() -> String {
+    "llama-server".into()
+}
+fn default_measure_engine() -> String {
+    "llamacpp-server".into()
+}
+fn default_cli_bin() -> String {
+    "llama-cli".into()
+}
+fn default_model_alias() -> String {
+    "hcc-local".into()
+}
+fn default_device() -> String {
+    "Vulkan0".into()
+}
+fn default_ctx_size() -> usize {
+    16_384
+}
+fn default_batch_size() -> usize {
+    2048
+}
+fn default_ubatch_size() -> usize {
+    512
+}
+fn default_parallel() -> usize {
+    1
+}
+fn default_threads() -> isize {
+    -1
+}
+fn default_poll() -> usize {
+    50
+}
+fn default_flash_attn() -> String {
+    "on".into()
+}
+fn default_cache_type_k() -> String {
+    "q8_0".into()
+}
+fn default_cache_type_v() -> String {
+    "q4_0".into()
+}
+fn default_gpu_layers() -> String {
+    "all".into()
+}
+fn default_fit_target_mib() -> usize {
+    4096
+}
+fn default_fit_ctx() -> usize {
+    4096
+}
+fn default_cache_reuse() -> usize {
+    256
+}
+fn default_reasoning() -> String {
+    "off".into()
+}
+fn default_spec_type() -> String {
+    "none".into()
+}
+fn default_startup_timeout_s() -> u64 {
+    240
+}
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DovetailConfig {
@@ -281,6 +333,8 @@ impl Default for HccConfig {
             backend: BackendConfig {
                 inference_engine: "llamacpp-rpc".into(),
                 server_bin: default_server_bin(),
+                measure_engine: default_measure_engine(),
+                cli_bin: default_cli_bin(),
                 spawn_server: true,
                 rpc_port: 50052,
                 model_path: "/models/glm-5.1.gguf".into(),
@@ -340,8 +394,14 @@ impl HccConfig {
             self.cluster.node_id,
             self.cluster.node_count
         );
-        assert!(self.cluster.memory_per_node_gb > 0.0, "memory_per_node_gb must be > 0");
-        assert!(self.cluster.memory_bw_gbs > 0.0, "memory_bw_gbs must be > 0");
+        assert!(
+            self.cluster.memory_per_node_gb > 0.0,
+            "memory_per_node_gb must be > 0"
+        );
+        assert!(
+            self.cluster.memory_bw_gbs > 0.0,
+            "memory_bw_gbs must be > 0"
+        );
         assert!(self.model.hidden_size > 0, "hidden_size must be > 0");
         assert!(self.model.num_layers > 0, "num_layers must be > 0");
         assert!(
@@ -377,6 +437,13 @@ impl HccConfig {
             "inference_engine must be llamacpp-rpc, migraphx, or simulated"
         );
         assert!(
+            matches!(
+                self.backend.measure_engine.as_str(),
+                "llamacpp-server" | "llamacpp-cli"
+            ),
+            "backend.measure_engine must be llamacpp-server or llamacpp-cli"
+        );
+        assert!(
             matches!(self.backend.flash_attn.as_str(), "on" | "off" | "auto"),
             "backend.flash_attn must be on, off, or auto"
         );
@@ -401,13 +468,27 @@ impl HccConfig {
         assert!(
             matches!(
                 self.backend.spec_type.as_str(),
-                "none" | "ngram-cache" | "ngram-simple" | "ngram-map-k" | "ngram-map-k4v" | "ngram-mod"
+                "none"
+                    | "ngram-cache"
+                    | "ngram-simple"
+                    | "ngram-map-k"
+                    | "ngram-map-k4v"
+                    | "ngram-mod"
             ),
             "backend.spec_type is not supported by this llama.cpp build"
         );
-        assert!(self.backend.ctx_size >= 1024, "backend.ctx_size must be >= 1024");
-        assert!(self.backend.batch_size >= 1, "backend.batch_size must be >= 1");
-        assert!(self.backend.ubatch_size >= 1, "backend.ubatch_size must be >= 1");
+        assert!(
+            self.backend.ctx_size >= 1024,
+            "backend.ctx_size must be >= 1024"
+        );
+        assert!(
+            self.backend.batch_size >= 1,
+            "backend.batch_size must be >= 1"
+        );
+        assert!(
+            self.backend.ubatch_size >= 1,
+            "backend.ubatch_size must be >= 1"
+        );
         assert!(self.backend.parallel >= 1, "backend.parallel must be >= 1");
         // Measured roofline: 212 GB/s / 19.1 GB ≈ 11.1 T/s per node
         let theoretical_tps = self.cluster.memory_bw_gbs / self.model.weight_read_gb();

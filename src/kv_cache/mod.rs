@@ -1,5 +1,6 @@
 pub mod custom_mla;
 
+use crate::kv_cache::custom_mla::CustomMlaQuantizer;
 /// KV cache using production TurboQuant crate + Custom MLA kernels.
 ///
 /// Replaces hand-rolled implementation with `turboquant-rs` v0.4.1
@@ -8,7 +9,6 @@ pub mod custom_mla;
 /// We also integrate custom HIP kernels for d=576 to eliminate power-of-2 padding,
 /// saving 44% VRAM overhead, and include a DeepSeek-V4 style FP4 Lightning Indexer.
 use turboquant::packed::TurboQuantConfig;
-use crate::kv_cache::custom_mla::CustomMlaQuantizer;
 
 /// TurboQuant natively requires power-of-2 dimensions. MLA d_kv = 576.
 /// If using the pure Rust path, we pad to 1024. If using the custom kernel, we don't.
@@ -32,27 +32,31 @@ struct Fp8Block(Vec<u8>, f32);
 
 impl MixedPrecisionKVCache {
     pub fn new(dim: usize) -> Self {
-        Self { 
-            key_blocks: Vec::new(), 
-            value_blocks: Vec::new(), 
+        Self {
+            key_blocks: Vec::new(),
+            value_blocks: Vec::new(),
             lightning_indices: Vec::new(),
             hca_summary: vec![0.0; dim],
             dim,
             use_custom_kernel: dim == 576, // Auto-enable custom kernel for GLM-4 MLA
-            custom_quantizer: if dim == 576 { Some(CustomMlaQuantizer::new()) } else { None },
+            custom_quantizer: if dim == 576 {
+                Some(CustomMlaQuantizer::new())
+            } else {
+                None
+            },
         }
     }
 
     pub fn insert(&mut self, key: &[f32], value: &[f32]) {
         let k = Self::quantize_fp8(key);
         let v = Self::quantize_lm3(value);
-        
+
         // Simulate FP4 Lightning Indexer extraction
         // In production, `polar_quantize_mla_576_kernel` computes this on the GPU
         let mut indexer_block = vec![0u8; INDEXER_DIM / 2];
         for i in 0..(INDEXER_DIM / 2) {
             // Mock 4-bit values (e.g., 0xA5)
-            indexer_block[i] = 0xA5; 
+            indexer_block[i] = 0xA5;
         }
 
         // DeepSeek-V4 HCA: Update global heavily compressed attention summary
@@ -75,16 +79,33 @@ impl MixedPrecisionKVCache {
     }
 
     /// Compressed Sparse Attention (CSA):
-    /// Uses the FP4 Lightning Indexer to find the top-K relevant blocks 
+    /// Uses the FP4 Lightning Indexer to find the top-K relevant blocks
     /// without dequantizing the full KV cache.
     pub fn sparse_gather(&self, query_indexer: &[u8], top_k: usize) -> Vec<usize> {
-        if self.lightning_indices.is_empty() { return vec![]; }
-        
-        // Mock Sparse Retrieval: In reality, we'd do an FP4 dot product here.
-        // We return the most recent `top_k` tokens as a placeholder for the top-k selection.
-        let n = self.lightning_indices.len();
-        let k = top_k.min(n);
-        (n - k..n).collect()
+        if self.lightning_indices.is_empty() {
+            return vec![];
+        }
+
+        let mut scored: Vec<(usize, i32)> = self
+            .lightning_indices
+            .iter()
+            .enumerate()
+            .map(|(idx, block)| (idx, Self::fp4_dot(query_indexer, block)))
+            .collect();
+
+        scored.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                // Recency is the tie-breaker used by most attention caches.
+                .then_with(|| b.0.cmp(&a.0))
+        });
+
+        let mut selected: Vec<usize> = scored
+            .into_iter()
+            .take(top_k.min(self.lightning_indices.len()))
+            .map(|(idx, _)| idx)
+            .collect();
+        selected.sort_unstable();
+        selected
     }
 
     pub fn read(&self, pos: usize) -> Option<(Vec<f32>, Vec<f32>)> {
@@ -93,22 +114,40 @@ impl MixedPrecisionKVCache {
 
     pub fn dequantize_key(&self, pos: usize) -> Option<Vec<f32>> {
         let block = self.key_blocks.get(pos)?;
-        Some(block.0.iter().map(|&b| (b as i8 as f32) * block.1).collect())
+        Some(
+            block
+                .0
+                .iter()
+                .map(|&b| (b as i8 as f32) * block.1)
+                .collect(),
+        )
     }
 
     pub fn dequantize_value(&self, pos: usize) -> Option<Vec<f32>> {
         let config = TurboQuantConfig::new(3, TQ_DIM).ok()?;
-        let mut raw = turboquant::quantize::dequantize_vec(&config, self.value_blocks.get(pos)?).ok()?;
+        let mut raw =
+            turboquant::quantize::dequantize_vec(&config, self.value_blocks.get(pos)?).ok()?;
         raw.truncate(self.dim);
         Some(raw)
     }
 
-    pub fn len(&self) -> usize { self.key_blocks.len() }
+    pub fn len(&self) -> usize {
+        self.key_blocks.len()
+    }
 
     fn quantize_fp8(data: &[f32]) -> Fp8Block {
         let max_abs = data.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
-        let scale = if max_abs > 1e-10 { max_abs / 127.0 } else { 1.0 };
-        Fp8Block(data.iter().map(|&v| ((v / scale).round().clamp(-127.0, 127.0) as i8) as u8).collect(), scale)
+        let scale = if max_abs > 1e-10 {
+            max_abs / 127.0
+        } else {
+            1.0
+        };
+        Fp8Block(
+            data.iter()
+                .map(|&v| ((v / scale).round().clamp(-127.0, 127.0) as i8) as u8)
+                .collect(),
+            scale,
+        )
     }
 
     fn quantize_lm3(data: &[f32]) -> turboquant::packed::PackedBlock {
@@ -116,10 +155,37 @@ impl MixedPrecisionKVCache {
         let config = TurboQuantConfig::new(3, TQ_DIM).ok().unwrap();
         let mut padded = data.to_vec();
         padded.resize(TQ_DIM, 0.0);
-        turboquant::quantize::quantize_vec(&config, &padded).ok().unwrap()
+        turboquant::quantize::quantize_vec(&config, &padded)
+            .ok()
+            .unwrap()
     }
 
-    pub fn savings_ratio(&self) -> f64 { 1.0 - (8.0 + 3.0) / 32.0 }
+    fn fp4_dot(query: &[u8], block: &[u8]) -> i32 {
+        query
+            .iter()
+            .zip(block.iter())
+            .map(|(&q, &b)| {
+                let q_lo = Self::decode_fp4_nibble(q & 0x0f) as i32;
+                let q_hi = Self::decode_fp4_nibble(q >> 4) as i32;
+                let b_lo = Self::decode_fp4_nibble(b & 0x0f) as i32;
+                let b_hi = Self::decode_fp4_nibble(b >> 4) as i32;
+                q_lo * b_lo + q_hi * b_hi
+            })
+            .sum()
+    }
+
+    fn decode_fp4_nibble(nibble: u8) -> i8 {
+        let n = (nibble & 0x0f) as i8;
+        if n >= 8 {
+            n - 16
+        } else {
+            n
+        }
+    }
+
+    pub fn savings_ratio(&self) -> f64 {
+        1.0 - (8.0 + 3.0) / 32.0
+    }
 }
 
 #[cfg(test)]
@@ -146,6 +212,21 @@ mod tests {
         let mock_query = vec![0xA5; 8];
         let top_indices = c.sparse_gather(&mock_query, 3);
         assert_eq!(top_indices, vec![7, 8, 9]);
+    }
+
+    #[test]
+    fn test_sparse_gather_uses_query_indexer() {
+        let mut c = MixedPrecisionKVCache::new(576);
+        for _ in 0..4 {
+            c.insert(&vec![0.5; 576], &vec![0.3; 576]);
+        }
+        c.lightning_indices[0] = vec![0x11; 8];
+        c.lightning_indices[1] = vec![0x22; 8];
+        c.lightning_indices[2] = vec![0x77; 8];
+        c.lightning_indices[3] = vec![0x88; 8];
+
+        let top_indices = c.sparse_gather(&vec![0x77; 8], 1);
+        assert_eq!(top_indices, vec![2]);
     }
 
     #[test]

@@ -33,7 +33,14 @@ impl DraftTree {
     }
 
     /// Add a node to the draft tree.
-    pub fn add_node(&mut self, parent_id: u32, token_id: u32, prob: f64, depth: u32, routing_probs: Vec<f64>) -> u32 {
+    pub fn add_node(
+        &mut self,
+        parent_id: u32,
+        token_id: u32,
+        prob: f64,
+        depth: u32,
+        routing_probs: Vec<f64>,
+    ) -> u32 {
         let node_id = self.nodes.len() as u32;
         self.nodes.push(TreeNode {
             node_id,
@@ -55,7 +62,7 @@ impl DraftTree {
     pub fn build_attention_mask(&self) -> Vec<Vec<bool>> {
         let n = self.nodes.len();
         let mut mask = vec![vec![false; n]; n];
-        
+
         for i in 0..n {
             let mut curr = i as u32;
             loop {
@@ -76,29 +83,53 @@ impl DraftTree {
     }
 
     /// DeFT: Decoding with Flash Tree-Attention (KV-Guided Grouping)
-    /// 
-    /// Instead of blindly flattening the tree, this algorithm topologically sorts 
-    /// the branches so that nodes sharing the longest common prefix are evaluated 
-    /// contiguously. This maximizes L1/L2 cache hits on the iGPU and reduces 
+    ///
+    /// Instead of blindly flattening the tree, this algorithm topologically sorts
+    /// the branches so that nodes sharing the longest common prefix are evaluated
+    /// contiguously. This maximizes L1/L2 cache hits on the iGPU and reduces
     /// redundant LPDDR5x KV cache memory reads by up to 73%.
     pub fn deft_flatten(&self) -> Vec<u32> {
-        if self.nodes.is_empty() { return vec![]; }
-        
-        let mut sorted_indices = Vec::new();
+        self.deft_flatten_nodes()
+            .into_iter()
+            .map(|node| node.token_id)
+            .collect()
+    }
+
+    /// DeFT traversal that preserves the full node metadata needed by verifier
+    /// scheduling, MoE routing, and draft acceptance accounting.
+    pub fn deft_flatten_nodes(&self) -> Vec<TreeNode> {
+        if self.nodes.is_empty() {
+            return vec![];
+        }
+
+        let mut sorted_nodes = Vec::new();
         let mut stack = vec![0]; // Start at root
-        
+
         // Build adjacency list for children
-        let mut children_map: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+        let mut children_map: std::collections::HashMap<u32, Vec<u32>> =
+            std::collections::HashMap::new();
         for node in &self.nodes {
             if node.node_id != 0 {
-                children_map.entry(node.parent_id).or_default().push(node.node_id);
+                children_map
+                    .entry(node.parent_id)
+                    .or_default()
+                    .push(node.node_id);
             }
         }
-        
+
+        for children in children_map.values_mut() {
+            children.sort_by(|a, b| {
+                self.nodes[*b as usize]
+                    .probability
+                    .total_cmp(&self.nodes[*a as usize].probability)
+                    .then_with(|| a.cmp(b))
+            });
+        }
+
         // Depth-First Traversal ensures branches with shared prefixes are processed together
         while let Some(current_id) = stack.pop() {
-            sorted_indices.push(self.nodes[current_id as usize].token_id);
-            
+            sorted_nodes.push(self.nodes[current_id as usize].clone());
+
             if let Some(children) = children_map.get(&current_id) {
                 // Push children in reverse order so they are popped left-to-right
                 for &child_id in children.iter().rev() {
@@ -106,12 +137,12 @@ impl DraftTree {
                 }
             }
         }
-        
-        sorted_indices
+
+        sorted_nodes
     }
 
     /// Implements MoE-Spec Expert Budgeting.
-    /// 
+    ///
     /// Prevents the "expert explosion" during tree verification.
     /// It scores experts by summing routing probabilities across the tree,
     /// selects the Top-B experts globally for the layer, and forces all tokens
@@ -136,7 +167,7 @@ impl DraftTree {
         // 2. Select Top-B experts
         let mut scored_experts: Vec<(usize, f64)> = global_scores.into_iter().enumerate().collect();
         scored_experts.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         let budget: std::collections::HashSet<usize> = scored_experts
             .into_iter()
             .take(budget_b)
@@ -145,14 +176,17 @@ impl DraftTree {
 
         // 3. Remap each node's Top-K experts to the budgeted Top-B list
         for node in &mut self.nodes {
-            if node.routing_probs.is_empty() { continue; }
-            
-            let mut local_scored: Vec<(usize, f64)> = node.routing_probs
+            if node.routing_probs.is_empty() {
+                continue;
+            }
+
+            let mut local_scored: Vec<(usize, f64)> = node
+                .routing_probs
                 .iter()
                 .enumerate()
                 .map(|(idx, &p)| (idx, p))
                 .collect();
-                
+
             // Sort by local probability, but heavily penalize experts not in the budget
             local_scored.sort_by(|a, b| {
                 let a_in_budget = budget.contains(&a.0);
@@ -166,7 +200,11 @@ impl DraftTree {
                 }
             });
 
-            node.budgeted_experts = local_scored.into_iter().take(active_k).map(|(idx, _)| idx as u32).collect();
+            node.budgeted_experts = local_scored
+                .into_iter()
+                .take(active_k)
+                .map(|(idx, _)| idx as u32)
+                .collect();
         }
     }
 }
@@ -174,19 +212,19 @@ impl DraftTree {
 /// Computes expected accepted tokens E[k] for a tree structure.
 /// Tree dramatically increases acceptance probability by exploring multiple paths.
 pub fn expected_tree_acceptance(depth: u32, branch_factor: u32, base_alpha: f64) -> f64 {
-    // Simplified expectation: at each depth, having `branch_factor` paths 
+    // Simplified expectation: at each depth, having `branch_factor` paths
     // increases the chance that at least one path is accepted.
     // P(reject all) = (1 - alpha)^branch_factor
     // P(accept at least one) = 1 - (1 - alpha)^branch_factor
     let mut expected = 0.0;
     let mut path_prob = 1.0;
-    
+
     for _ in 0..depth {
         let layer_accept_prob = 1.0 - (1.0 - base_alpha).powi(branch_factor as i32);
         path_prob *= layer_accept_prob;
         expected += path_prob;
     }
-    
+
     expected
 }
 
@@ -201,7 +239,7 @@ mod tests {
         tree.add_node(0, 100, 1.0, 0, vec![]);
         // Branches from root
         let child1 = tree.add_node(0, 101, 0.6, 1, vec![]);
-        let child2 = tree.add_node(0, 102, 0.4, 1, vec![]);
+        let _child2 = tree.add_node(0, 102, 0.4, 1, vec![]);
         // Branch from child1
         tree.add_node(child1, 103, 0.8, 2, vec![]);
 
@@ -218,27 +256,45 @@ mod tests {
     fn test_expert_budgeting() {
         let mut tree = DraftTree::new();
         // 8 experts total. Budget B=3, K=2.
-        
+
         // Node 1 wants experts 0 and 1
         tree.add_node(0, 100, 1.0, 0, vec![0.9, 0.8, 0.1, 0.1, 0.0, 0.0, 0.0, 0.0]);
         // Node 2 wants experts 2 and 3
         tree.add_node(0, 101, 1.0, 1, vec![0.0, 0.0, 0.9, 0.8, 0.1, 0.1, 0.0, 0.0]);
         // Node 3 wants experts 0 and 2
         tree.add_node(0, 102, 1.0, 1, vec![0.9, 0.1, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        
+
         // Aggregate scores: Expert 0=1.8, Expert 2=1.8, Expert 1=0.9, Expert 3=0.8.
         // Top B=3 budget: Experts {0, 2, 1}.
-        
+
         tree.enforce_expert_budget(3, 2);
-        
+
         assert_eq!(tree.nodes[0].budgeted_experts, vec![0, 1]); // Naturally in budget
         assert_eq!(tree.nodes[2].budgeted_experts, vec![0, 2]); // Naturally in budget
-        
+
         // Node 1 wanted 2 and 3. 2 is in budget, 3 is NOT.
         // The algorithm should remap the second slot to an expert in the budget (e.g. 0 or 1).
         let budgeted_for_node_2 = &tree.nodes[1].budgeted_experts;
         assert!(budgeted_for_node_2.contains(&2));
         assert!(!budgeted_for_node_2.contains(&3)); // 3 was evicted
         assert!(budgeted_for_node_2.contains(&0) || budgeted_for_node_2.contains(&1));
+    }
+
+    #[test]
+    fn test_deft_flatten_nodes_preserves_metadata() {
+        let mut tree = DraftTree::new();
+        tree.add_node(0, 0, 1.0, 0, vec![0.1, 0.9]);
+        let low = tree.add_node(0, 101, 0.2, 1, vec![0.8, 0.2]);
+        let high = tree.add_node(0, 102, 0.9, 1, vec![0.3, 0.7]);
+        tree.add_node(low, 201, 0.4, 2, vec![0.6, 0.4]);
+        tree.add_node(high, 202, 0.7, 2, vec![0.2, 0.8]);
+
+        let flattened = tree.deft_flatten_nodes();
+        assert_eq!(flattened[0].node_id, 0);
+        assert_eq!(flattened[1].node_id, high);
+        assert_eq!(flattened[1].probability, 0.9);
+        assert_eq!(flattened[1].routing_probs, vec![0.3, 0.7]);
+        assert_eq!(flattened[2].token_id, 202);
+        assert_eq!(flattened[3].node_id, low);
     }
 }

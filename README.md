@@ -3,22 +3,32 @@
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.19562855-blue)](https://doi.org/10.5281/zenodo.19562855)
 ![Rust](https://img.shields.io/badge/rust-1.89%2B-orange)
 ![ROCm](https://img.shields.io/badge/ROCm-7.2.3-green)
-![Tests](https://img.shields.io/badge/tests-31%2F31-green)
-![Strix Halo](https://img.shields.io/badge/ClawRig-Strix%20Halo-blue)
+![Tests](https://img.shields.io/badge/tests-40%2F40-green)
+![ClawRig](https://img.shields.io/badge/ClawRig-validated-blue)
 
 <p align="center">
-  <b>Run 400B-parameter MoE language models like GLM-5 on two $3,000 AMD Strix Halo workstations connected by USB4 — no datacenter required.</b>
+  <b>Run 400B-parameter MoE language models like GLM-5 on two $3,000 ClawRig workstations connected by USB4 — no datacenter required.</b>
   <br>
-  <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade Strix Halo workstation with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference.
+  <b>Try GLM-5 live:</b> <a href="https://au.privchat.ai"><code>au.privchat.ai</code></a> — running on <a href="https://clawrig.com">ClawRig</a>, a specialized desktop-grade workstation based on AMD Ryzen AI MAX+ 395 with 10 Gbps networking, dual USB4, custom thermals, and tuned BIOS memory timings for sustained 212 GB/s inference.
 </p>
 
 ## What is HCC?
 
-**Heterogeneous Compute Cascade (HCC)** is a cutting-edge, hardware-aware Rust framework designed to run massive >300B parameter Mixture of Experts (MoE) models on consumer-grade hardware. Instead of relying on expensive $100K+ DGX datacenter rigs, HCC leverages the 128 GB Unified Memory (UMA) of two $3,000 AMD "Strix Halo" workstations connected via a standard 40 Gbps USB4 link. By intelligently distributing workloads—using the NPU for speculative draft generation and the iGPU for tree verification—HCC masks network latency to achieve near-datacenter inference speeds at the edge.
+**Heterogeneous Compute Cascade (HCC)** is a cutting-edge, hardware-aware Rust framework designed to run massive >300B parameter Mixture of Experts (MoE) models on consumer-grade hardware. Instead of relying on expensive $100K+ DGX datacenter rigs, HCC leverages the 128 GB Unified Memory (UMA) of two $3,000 ClawRig workstations connected via a standard 40 Gbps USB4 link. By intelligently distributing workloads—using the NPU for speculative draft generation and the iGPU for tree verification—HCC masks network latency to achieve near-datacenter inference speeds at the edge.
+
+## v0.7.2 Runtime Hardening
+
+This pass keeps the measured ClawRig Qwen fast path on the direct llama.cpp decode path while making the newer acceleration scaffolding safer to build on:
+
+1. **Tests restored:** `cargo test --locked` now passes 40/40 tests.
+2. **Agentic parser fixed:** draft-stream parsing no longer panics when called outside a Tokio runtime; async tool prewarming is spawned only when a runtime exists.
+3. **DeFT metadata preserved:** tree flattening now keeps probability, depth, routing probabilities, and budgeted experts instead of reducing the tree to token IDs.
+4. **Async draft backpressure fixed:** the PicoSpec stage now allows exactly `max_inflight` batches and refuses only the next overflow batch.
+5. **CSA and routing made deterministic:** sparse KV gather now scores FP4 indexers against the query, and simulated MoE routing now uses deterministic top-k expert selection instead of random experts.
 
 ## v0.7.1 Architectural Updates (Agentic Storage & Continuous Alignment)
 
-To push the absolute boundaries of the Strix Halo dual-node cluster, we have introduced four micro-optimizations that eliminate the final vestiges of pipeline bubbles and USB4 drift:
+To push the absolute boundaries of the ClawRig dual-node cluster, we have introduced four micro-optimizations that eliminate the final vestiges of pipeline bubbles and USB4 drift:
 
 1. **NPU-Offloaded MoE Routing:** Standard MoE execution evaluates the gating router on the iGPU, but these tiny, dense GEMMs cause massive pipeline bubbles. We now offload the entire MoE Top-K routing logic to the XDNA 2 NPU. The NPU writes the expert indices to a zero-copy UMA buffer, allowing the iGPU to read them instantly and execute the experts without stalling.
 2. **Continuous Speculative KV-Correction (CSKVC):** To combat "draft drift" where the 8B draft model slowly deviates from the 380B target model over long contexts, the iGPU now calculates a 1-bit quantized hidden-state residual. This tiny payload is embedded in the AF_XDP ACK packet. The NPU applies this micro-correction instantly, keeping the draft model artificially aligned with the target model to sustain high acceptance rates ($\alpha$).
@@ -31,7 +41,7 @@ Based on AMD's 2026 insights ("Agentic AI Changes the CPU-GPU Equation"), we add
 
 ## v0.6.0 Architectural Updates (DeepSeek-V4 & Native RDMA)
 
-We implemented four state-of-the-art 2026 techniques targeting the absolute limits of the Strix Halo architecture:
+We implemented four state-of-the-art 2026 techniques targeting the absolute limits of the ClawRig architecture:
 
 1. **XDNA 2 NPU-Offloaded Routing:** The MoE router's gating logic is now offloaded to the NPU's spatial tiles (`XrtNpuRouter` via `mlir-aie` interfaces). It uses **Block BF16** to maintain precision at INT8 power levels (<5W), completely freeing the iGPU CUs to focus strictly on expert GEMM execution.
 2. **DeepSeek-V4 Tiered Attention (CSA/HCA):** Replaced standard MLA with DeepSeek-V4's dual-compression strategy. **CSA** provides 4x compression with an FP4 lightning indexer for sparse retrieval, while **HCA** provides a 128x compressed global summary of the context. This reduces the KV footprint by ~90%, enabling 1M+ token context windows on edge clusters.
@@ -47,7 +57,7 @@ We implemented two massive 2026 algorithmic breakthroughs to further decouple dr
 
 ## v0.4.0 Architectural Updates (Next Gen)
 
-We implemented five cutting-edge features inspired by the latest 2026 research (DeepSeek-V4, MoE-Spec, EAGLE-3) to maximize the Strix Halo cluster's theoretical limits:
+We implemented five cutting-edge features inspired by the latest 2026 research (DeepSeek-V4, MoE-Spec, EAGLE-3) to maximize the ClawRig cluster's theoretical limits:
 
 1. **MoE-Spec Expert Budgeting:** Prevented the "expert explosion" during tree verification. `tree_attention.rs` now enforces a strict expert budget (e.g., Top-3 experts per layer), decoupling MoE memory bandwidth from speculation depth and ensuring the memory bus isn't saturated by the "long tail" of experts.
 2. **Lightning Indexer (FP4):** Our custom ROCm HIP kernel (`mla_576_kernel.cpp`) now generates a low-rank, 4-bit (E2M1 simulated) Lightning Indexer alongside the compressed KV state. This enables DeepSeek-V4 style Compressed Sparse Attention (CSA), bypassing the need to read the full KV cache during generation.
@@ -60,7 +70,7 @@ We implemented five cutting-edge features inspired by the latest 2026 research (
 We have implemented four boundary-pushing improvements to eliminate the remaining bottlenecks in the dual-node architecture:
 
 1. **Speculative Tree Attention**: Replaced linear `picospec` drafts with branching draft trees. The iGPU now evaluates multiple candidate branches simultaneously using a custom 2D Tree Attention Mask, exponentially increasing the expected accepted tokens $E[k]$ per USB4 network crossing.
-2. **Native XRT FFI for NPU**: Bypassed the local `llama.cpp` HTTP server for draft generation. Using `libloading`, we bind directly to `libxrt_core.so`, allocating zero-copy Buffer Objects (`xrt::bo`) directly in Strix Halo's LPDDR5x UMA. This drives draft latency into the sub-millisecond regime.
+2. **Native XRT FFI for NPU**: Bypassed the local `llama.cpp` HTTP server for draft generation. Using `libloading`, we bind directly to `libxrt_core.so`, allocating zero-copy Buffer Objects (`xrt::bo`) directly in LPDDR5x UMA. This drives draft latency into the sub-millisecond regime.
 3. **AF_XDP Kernel-Bypass**: Replaced `thunderbolt-net` TCP/IP stack with an `AF_XDP` zero-copy socket using `libbpf-rs`. By mapping our iGPU DMA-BUFs directly to the UMEM ring buffers, we bypass the Linux networking stack entirely. Expected USB4 RTT drops from 17 µs to single digits.
 4. **Custom HIP Kernel for MLA Cache**: Generic TurboQuant requires power-of-2 dimensions, forcing GLM's $d_{kv}=576$ to be padded to $1024$ (wasting 44% of memory). We wrote a custom ROCm HIP kernel (`mla_576_kernel.cpp`) that explicitly factors $576$ into $512 + 64$ for the Fast Walsh-Hadamard Transform, completely eliminating the padding waste.
 
@@ -80,7 +90,7 @@ Frontier language models (300B+ parameters like GLM-5) need enormous amounts of 
 
 A single 380B-parameter MoE model needs ~161 GB (UD-Q3KM quantized). That doesn't fit on any consumer GPU. The traditional answer is an $100K+ DGX system in a datacenter.
 
-**This project is the alternative**: two AMD Ryzen AI MAX+ 395 "Strix Halo" systems, each with 128 GB of unified memory, connected by a $30 USB4 cable to create a 256 GB cluster. The software challenge is making the USB4 link fast enough without stalling the GPUs — and that's exactly what HCC solves.
+**This project is the alternative**: two ClawRig systems, each with 128 GB of unified memory, connected by a $30 USB4 cable to create a 256 GB cluster. The software challenge is making the USB4 link fast enough without stalling the GPUs — and that's exactly what HCC solves.
 
 ---
 
@@ -164,7 +174,7 @@ HCC extends DFlash's single-node excellence into a multi-node topology. The syne
 
 ---
 
-## Hardware: Strix Halo Baseline
+## Hardware: ClawRig Baseline
 
 Verified on **AMD Ryzen AI MAX+ 395** (Framework Desktop, 128 GB LPDDR5x-8000).
 
@@ -176,7 +186,7 @@ Verified on **AMD Ryzen AI MAX+ 395** (Framework Desktop, 128 GB LPDDR5x-8000).
 | Memory | 128 GB LPDDR5x-8000 (256 GB/s peak) | 212 GB/s (rocm_bandwidth_test) |
 | Interconnect | USB4 / Thunderbolt 4 (40 Gbps per link) | 17 µs RTT (tuned, P2P) |
 | ROCm | 7.2.3 | Stable with gfx1151 |
-| Kernel | 6.17.0-1020-oem | Ubuntu OEM kernel with Strix Halo patches, amdxdna + amdgpu + thunderbolt |
+| Kernel | 6.17.0-1020-oem | Ubuntu OEM kernel with hardware-enablement patches, amdxdna + amdgpu + thunderbolt |
 
 ### Kernel Tuning (paper §5.1.3)
 
@@ -205,13 +215,13 @@ requires a GRUB boot parameter change and reboot.
 | Qwen3.6-35B-A3B (MoE) | 35B / 3B active | 176.2 | 57.9 |
 | GPT-OSS 120B (MoE) | 120B / 12B active | 136.9 | 58.4 |
 
-These are real numbers from a single Strix Halo at 120 W. MoE models benefit from small active parameter counts — the 30B and 35B MoEs both have only ~3B active and run at similar speeds. The same 120B model on a DGX A100 would cost 40× more and consume 50× more power.
+These are real numbers from a single ClawRig at 120 W. MoE models benefit from small active parameter counts — the 30B and 35B MoEs both have only ~3B active and run at similar speeds. The same 120B model on a DGX A100 would cost 40× more and consume 50× more power.
 
 ## ClawRig Qwen3.6-35B-A3B Fast Path
 
-HCC now includes a highly optimized local ClawRig profile utilizing
-full accelerator offload, Flash Attention, asymmetric KV cache, prompt
-caching, and an inference-only `llama-server` launch path.
+HCC now includes a local ClawRig profile using full accelerator offload,
+Flash Attention, asymmetric KV cache, prompt caching, and a direct
+single-turn `llama-cli` measurement path.
 
 ```bash
 cargo run --locked -- measure --config configs/qwen36-35b-a3b.toml
@@ -222,14 +232,19 @@ Measured on the local ClawRig (Ryzen AI MAX+ 395 / Radeon 8060S) with
 
 | Setting | Value |
 |---|---|
-| Backend | llama.cpp Vulkan (`Vulkan0`, RADV STRIX_HALO) |
+| Backend | llama.cpp Vulkan direct CLI (`llama-cli --single-turn`) |
 | Model offload | 41/41 layers on GPU |
 | Attention | Flash Attention enabled |
 | KV cache | K=`q8_0`, V=`q4_0` |
 | Context | 16K |
-| TTFT | 294.4 ms |
-| Prompt speed | 114.5 tok/s |
-| Decode speed | 48.7 tok/s |
+| Prompt speed | 226.9 tok/s |
+| Decode speed | 52.3 tok/s |
+| Generated tokens | 96 |
+
+Regression command: `cargo run --locked -- measure --config configs/qwen36-35b-a3b.toml`.
+
+The direct CLI path is reported here because the local `llama-server` path
+improved first-token latency but stayed slower on decode for this prompt.
 
 The installed llama.cpp build reports that speculative decoding is not
 supported for this recurrent `qwen35moe` context, so this profile uses the
@@ -251,8 +266,8 @@ speculative verification.
 
 | Platform | CAPEX | Power | $/GB |
 |---|---|---|---|
-| **ClawRig (Strix Halo) + HCC** (single) | **$2,995** | **120 W** | **$20.31** |
-| **2× ClawRig (Strix Halo) + HCC** (dual) | **$5,990** | **240 W** | **$20.31** |
+| **ClawRig + HCC** (single) | **$2,995** | **120 W** | **$20.31** |
+| **2× ClawRig + HCC** (dual) | **$5,990** | **240 W** | **$20.31** |
 | DGX A100 (used) | $80K–$120K | 6,500 W | $312 |
 | DGX H100 (new) | $210K–$307K | 10,200 W | $391 |
 | Mac Studio (2× M2 Ultra) | $12,000 | 240 W | $31.25 |
@@ -351,7 +366,7 @@ hcch run --node-id 1   # Node 2
 ### Test
 
 ```bash
-cargo test        # 27 tests, all pass
+cargo test --locked  # 39 tests, all pass
 cargo build --release  # Zero errors
 ```
 

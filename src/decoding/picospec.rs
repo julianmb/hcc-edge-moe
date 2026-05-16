@@ -19,7 +19,6 @@
 /// Mirror-SD innovations adopted:
 ///   4. BIDIRECTIONAL SPECULATION: NPU speculates forward tokens while
 ///      iGPU speculates correction paths — both directions run in parallel.
-
 use crate::decoding::speculative::DraftToken;
 use std::collections::VecDeque;
 
@@ -49,11 +48,7 @@ impl PicoSpecRejection {
     /// Separate rejection sampling: NPU-side partial check.
     ///
     /// Returns the position k where rejection occurs, or γ if all accepted.
-    pub fn partial_check(
-        draft_probs: &[f32],
-        target_probs: &[f32],
-        uniform: &[f64],
-    ) -> usize {
+    pub fn partial_check(draft_probs: &[f32], target_probs: &[f32], uniform: &[f64]) -> usize {
         let n = draft_probs.len().min(target_probs.len());
         for k in 0..n {
             let ratio = target_probs[k] as f64 / draft_probs[k].max(f32::EPSILON) as f64;
@@ -119,31 +114,37 @@ impl AsyncDraftStage {
 
     /// Submit a new draft batch for verification.
     pub fn submit(&mut self, tokens: Vec<DraftToken>, seq: u64) -> Option<Vec<u8>> {
+        if self.pending.len() >= self.max_inflight {
+            return None;
+        }
+
         // Compress before moving into pending
         let compressed = PicoSpecRejection::compress_draft(&tokens, 8);
         self.pending.push_back(DraftBatch { tokens, seq });
-
-        if self.pending.len() >= self.max_inflight {
-            None
-        } else {
-            Some(compressed)
-        }
+        Some(compressed)
     }
 
     /// Process verification result — release oldest pending batch.
     pub fn verify(&mut self, _accepted_count: usize) -> Option<usize> {
-        self.pending.pop_front().map(|batch| batch.tokens.len())
+        self.pending.pop_front().map(|batch| {
+            tracing::trace!("verified draft batch seq={}", batch.seq);
+            batch.tokens.len()
+        })
     }
 
     pub fn is_stalled(&self) -> bool {
         self.pending.len() >= self.max_inflight
+    }
+
+    pub fn pending_len(&self) -> usize {
+        self.pending.len()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-use crate::decoding::speculative::DraftToken;
+    use crate::decoding::speculative::DraftToken;
 
     #[test]
     fn test_compress_draft_small() {
@@ -173,15 +174,37 @@ use crate::decoding::speculative::DraftToken;
             kv_state: vec![],
         }];
         assert!(stage.submit(drafts, 0).is_some());
-        assert!(stage.submit(
+        assert!(stage
+            .submit(
+                vec![DraftToken {
+                    token_id: 2,
+                    probability: 0.6,
+                    kv_state: vec![],
+                }],
+                1
+            )
+            .is_some());
+        assert!(!stage.is_stalled());
+    }
+
+    #[test]
+    fn test_async_pipeline_allows_exact_inflight_limit() {
+        let mut stage = AsyncDraftStage::new(2);
+        let draft = |token_id| {
             vec![DraftToken {
-                token_id: 2,
-                probability: 0.6,
+                token_id,
+                probability: 0.5,
                 kv_state: vec![],
-            }],
-            1
-        )
-        .is_some());
+            }]
+        };
+
+        assert!(stage.submit(draft(1), 0).is_some());
+        assert!(stage.submit(draft(2), 1).is_some());
+        assert!(stage.is_stalled());
+        assert_eq!(stage.pending_len(), 2);
+        assert!(stage.submit(draft(3), 2).is_none());
+        assert_eq!(stage.pending_len(), 2);
+        assert_eq!(stage.verify(1), Some(1));
         assert!(!stage.is_stalled());
     }
 }

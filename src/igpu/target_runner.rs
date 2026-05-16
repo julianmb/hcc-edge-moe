@@ -34,13 +34,18 @@ impl TargetRunner {
             let args = Self::llama_server_args(&backend);
             tracing::info!("launching {} {}", backend.server_bin, args.join(" "));
             let mut cmd = Command::new(&backend.server_bin);
-            cmd.args(&args)
-                .kill_on_drop(true);
+            cmd.args(&args).kill_on_drop(true);
             Some(cmd.spawn().with_context(|| {
-                format!("failed to spawn llama-server binary '{}'", backend.server_bin)
+                format!(
+                    "failed to spawn llama-server binary '{}'",
+                    backend.server_bin
+                )
             })?)
         } else {
-            tracing::info!("attaching to existing llama-server on :{}", backend.rpc_port);
+            tracing::info!(
+                "attaching to existing llama-server on :{}",
+                backend.rpc_port
+            );
             None
         };
 
@@ -60,22 +65,38 @@ impl TargetRunner {
 
     pub fn llama_server_args(backend: &BackendConfig) -> Vec<String> {
         let mut args = vec![
-            "--model".into(), backend.model_path.clone(),
-            "--alias".into(), backend.model_alias.clone(),
-            "--host".into(), "127.0.0.1".into(),
-            "--port".into(), backend.rpc_port.to_string(),
-            "--ctx-size".into(), backend.ctx_size.to_string(),
-            "--batch-size".into(), backend.batch_size.to_string(),
-            "--ubatch-size".into(), backend.ubatch_size.to_string(),
-            "--parallel".into(), backend.parallel.to_string(),
-            "--threads".into(), backend.threads.to_string(),
-            "--threads-batch".into(), backend.threads_batch.to_string(),
-            "--poll".into(), backend.poll.to_string(),
-            "--flash-attn".into(), backend.flash_attn.clone(),
-            "--cache-type-k".into(), backend.cache_type_k.clone(),
-            "--cache-type-v".into(), backend.cache_type_v.clone(),
-            "--n-gpu-layers".into(), backend.gpu_layers.clone(),
-            "--reasoning".into(), backend.reasoning.clone(),
+            "--model".into(),
+            backend.model_path.clone(),
+            "--alias".into(),
+            backend.model_alias.clone(),
+            "--host".into(),
+            "127.0.0.1".into(),
+            "--port".into(),
+            backend.rpc_port.to_string(),
+            "--ctx-size".into(),
+            backend.ctx_size.to_string(),
+            "--batch-size".into(),
+            backend.batch_size.to_string(),
+            "--ubatch-size".into(),
+            backend.ubatch_size.to_string(),
+            "--parallel".into(),
+            backend.parallel.to_string(),
+            "--threads".into(),
+            backend.threads.to_string(),
+            "--threads-batch".into(),
+            backend.threads_batch.to_string(),
+            "--poll".into(),
+            backend.poll.to_string(),
+            "--flash-attn".into(),
+            backend.flash_attn.clone(),
+            "--cache-type-k".into(),
+            backend.cache_type_k.clone(),
+            "--cache-type-v".into(),
+            backend.cache_type_v.clone(),
+            "--n-gpu-layers".into(),
+            backend.gpu_layers.clone(),
+            "--reasoning".into(),
+            backend.reasoning.clone(),
         ];
 
         if !backend.device.is_empty() {
@@ -83,9 +104,12 @@ impl TargetRunner {
         }
         if backend.fit {
             args.extend([
-                "--fit".into(), "on".into(),
-                "--fit-target".into(), backend.fit_target_mib.to_string(),
-                "--fit-ctx".into(), backend.fit_ctx.to_string(),
+                "--fit".into(),
+                "on".into(),
+                "--fit-target".into(),
+                backend.fit_target_mib.to_string(),
+                "--fit-ctx".into(),
+                backend.fit_ctx.to_string(),
             ]);
         } else {
             args.extend(["--fit".into(), "off".into()]);
@@ -157,13 +181,20 @@ impl TargetRunner {
         Ok(start.elapsed().as_secs_f64())
     }
 
-    pub async fn generate_completion(&self, prompt: &str, n_predict: usize) -> anyhow::Result<GenerationReport> {
+    pub async fn generate_completion(
+        &self,
+        prompt: &str,
+        n_predict: usize,
+    ) -> anyhow::Result<GenerationReport> {
         let client = reqwest::Client::new();
         let body = json!({
             "prompt": prompt,
             "n_predict": n_predict,
-            "temperature": 0.2,
-            "top_p": 0.95,
+            "temperature": 0.0,
+            "top_k": 1,
+            "top_p": 1.0,
+            "min_p": 0.0,
+            "repeat_penalty": 1.0,
             "cache_prompt": self.backend.cache_prompt,
         });
 
@@ -200,7 +231,8 @@ impl TargetRunner {
     pub async fn verify_batch(&self, draft_tokens: &[u32]) -> anyhow::Result<Vec<f32>> {
         let client = reqwest::Client::new();
         // Convert draft tokens to a prompt string and get next-token logits
-        let prompt = draft_tokens.iter()
+        let prompt = draft_tokens
+            .iter()
             .map(|t| format!("<|token_id|>{t}"))
             .collect::<Vec<_>>()
             .join("");
@@ -245,7 +277,6 @@ impl TargetRunner {
 
         Ok(logits)
     }
-
 }
 
 #[cfg(test)]
@@ -254,14 +285,24 @@ mod tests {
     use crate::config::HccConfig;
 
     #[test]
-    fn test_llama_args_include_strix_halo_fast_path() {
+    fn test_llama_args_include_clawrig_fast_path() {
         let cfg = HccConfig::default();
         let args = TargetRunner::llama_server_args(&cfg.backend);
-        assert!(args.windows(2).any(|w| w[0] == "--device" && w[1] == "Vulkan0"));
-        assert!(args.windows(2).any(|w| w[0] == "--flash-attn" && w[1] == "on"));
-        assert!(args.windows(2).any(|w| w[0] == "--cache-type-k" && w[1] == "q8_0"));
-        assert!(args.windows(2).any(|w| w[0] == "--cache-type-v" && w[1] == "q4_0"));
-        assert!(args.windows(2).any(|w| w[0] == "--n-gpu-layers" && w[1] == "all"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--device" && w[1] == "Vulkan0"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--flash-attn" && w[1] == "on"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--cache-type-k" && w[1] == "q8_0"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--cache-type-v" && w[1] == "q4_0"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--n-gpu-layers" && w[1] == "all"));
         assert!(args.iter().any(|a| a == "--no-webui"));
     }
 }

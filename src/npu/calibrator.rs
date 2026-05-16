@@ -55,7 +55,10 @@ impl DraftCalibrator {
         // Mean embedding across recent prompts
         let d = self.recent_prompts[0].len();
         let mean: Vec<f32> = (0..d)
-            .map(|i| self.recent_prompts.iter().map(|p| p[i]).sum::<f32>() / self.recent_prompts.len() as f32)
+            .map(|i| {
+                self.recent_prompts.iter().map(|p| p[i]).sum::<f32>()
+                    / self.recent_prompts.len() as f32
+            })
             .collect();
         // Simulated LoRA-style calibration weight
         let norm: f32 = mean.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -76,22 +79,45 @@ impl DraftCalibrator {
     }
 
     /// v0.7.1 Continuous Speculative KV-Correction (CSKVC)
-    /// 
-    /// Applies a 1-bit quantized residual (calculated by the iGPU) to the NPU's 
+    ///
+    /// Applies a 1-bit quantized residual (calculated by the iGPU) to the NPU's
     /// draft model hidden states. This prevents "draft drift" over long sequences.
     pub fn apply_1bit_correction(&mut self, residual_1bit: &[u8], hidden_dim: usize) {
         // In production:
         // 1. Dequantize the 1-bit residual using the QJL estimator math (Eq. 10).
         // 2. Apply the correction vector directly to the NPU's current KV cache state
         //    via XRT Memory Objects.
-        
+
         if !residual_1bit.is_empty() {
+            let bit_count = hidden_dim.max(1).min(residual_1bit.len() * 8);
+            let positive = residual_1bit
+                .iter()
+                .enumerate()
+                .map(|(byte_idx, byte)| {
+                    let remaining = bit_count.saturating_sub(byte_idx * 8).min(8);
+                    if remaining == 0 {
+                        0
+                    } else {
+                        let mask = if remaining == 8 {
+                            u8::MAX
+                        } else {
+                            (1u8 << remaining) - 1
+                        };
+                        (byte & mask).count_ones() as usize
+                    }
+                })
+                .sum::<usize>();
+            let negative = bit_count.saturating_sub(positive);
+            let imbalance = (positive as f32 - negative as f32).abs() / bit_count as f32;
+            let correction_strength = 0.02 + imbalance.min(1.0) * 0.08;
+
             tracing::trace!(
-                "CSKVC: Applied {}-byte 1-bit correction payload to draft KV state to prevent drift.",
-                residual_1bit.len()
+                "CSKVC: Applied {}-byte 1-bit correction payload over {} hidden dims to prevent drift.",
+                residual_1bit.len(),
+                bit_count
             );
-            // Simulate the alignment boost by increasing the calibration weight slightly
-            self.calibration_weight = (self.calibration_weight + 0.05).min(0.5);
+            // Simulate the alignment boost while scaling by the residual signal.
+            self.calibration_weight = (self.calibration_weight + correction_strength).min(0.5);
         }
     }
 }
@@ -120,5 +146,13 @@ mod tests {
         let original = logits.clone();
         cal.calibrate(&mut logits);
         assert_ne!(logits, original);
+    }
+
+    #[test]
+    fn test_1bit_correction_uses_hidden_dim_payload() {
+        let mut cal = DraftCalibrator::new();
+        cal.apply_1bit_correction(&[0xff, 0x00], 8);
+        assert!(cal.calibration_weight > 0.09);
+        assert!(cal.calibration_weight <= 0.5);
     }
 }

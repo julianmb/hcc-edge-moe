@@ -16,6 +16,10 @@
 
 **Heterogeneous Compute Cascade (HCC)** is a cutting-edge, hardware-aware Rust framework designed to run massive >300B parameter Mixture of Experts (MoE) models on consumer-grade hardware. Instead of relying on expensive $100K+ DGX datacenter rigs, HCC leverages the 128 GB Unified Memory (UMA) of two $3,000 AMD "Strix Halo" workstations connected via a standard 40 Gbps USB4 link. By intelligently distributing workloads—using the NPU for speculative draft generation and the iGPU for tree verification—HCC masks network latency to achieve near-datacenter inference speeds at the edge.
 
+## v0.7.0 Architectural Updates (Agentic Orchestration)
+
+Based on AMD's 2026 insights ("Agentic AI Changes the CPU-GPU Equation"), we added a dedicated CPU-bound Agentic Orchestration Layer. While the GPUs compute matrix math, the 16 Zen 5 cores continuously parse the draft token stream to validate JSON structures in real-time and speculatively pre-warm tool execution environments (e.g., DNS resolution, schema validation) before the iGPU even finishes verification. This completely hides tool-calling latency.
+
 ## v0.6.0 Architectural Updates (DeepSeek-V4 & Native RDMA)
 
 We implemented four state-of-the-art 2026 techniques targeting the absolute limits of the Strix Halo architecture:

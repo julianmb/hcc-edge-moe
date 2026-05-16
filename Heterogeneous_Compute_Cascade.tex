@@ -694,12 +694,13 @@ This paper presents an \textbf{architectural blueprint and mathematical validati
 \textbf{Ongoing development.} Section 5.1 demonstrated empirical USB4 P2P latency of 17 $\mu$s with kernel tuning---already 30$\times$ below the unoptimized baseline. Further reduction to $\sim$10 $\mu$s via kernel-bypass RDMA over Thunderbolt (RoCEv2 \cite{rocev2}), leveraging the rocSHMEM GDA backend available in ROCm 7.x, is under investigation as a path to eliminating speculative amortization overhead entirely.
 
 
-\section{Post-Publication Architectural Upgrades (v0.3.0)}
-\label{sec:v030}
+\section{Post-Publication Architectural Upgrades (v0.7.0)}
+\label{sec:v070}
 
-Since the initial preprint, four critical architectural enhancements have been integrated into the HCC codebase to push the boundaries of the Strix Halo platform:
+Since the initial preprint, significant architectural enhancements have been integrated into the HCC codebase to push the boundaries of the Strix Halo platform:
 
 \begin{itemize}
+    \item \textbf{Agentic CPU Orchestration (v0.7.0):} Acknowledging the shifting CPU-GPU balance in Agentic AI, we implemented a dedicated CPU orchestration layer. The 16 Zen 5 cores now continuously parse the draft token stream, performing real-time JSON schema validation and speculatively pre-warming tool execution environments (e.g., DNS resolution) before the iGPU completes its verification forward pass.
     \item \textbf{Speculative Tree Attention:} We replaced linear draft sequences with branching draft trees. By utilizing a 2D Tree Attention Mask, the iGPU evaluates multiple candidate branches simultaneously, exponentially increasing $\mathbb{E}[k]$ per USB4 network crossing.
     \item \textbf{Native XRT FFI:} Draft generation now bypasses the local HTTP stack entirely. By dynamically linking to \texttt{libxrt\_core.so} and allocating zero-copy Buffer Objects (\texttt{xrt::bo}) directly in the LPDDR5x UMA, NPU dispatch latency is reduced to the sub-millisecond regime.
     \item \textbf{AF\_XDP Kernel-Bypass:} To overcome the remaining 17 $\mu$s TCP/IP overhead over \texttt{thunderbolt-net}, we implemented an \texttt{AF\_XDP} zero-copy socket interface. By mapping DMA-BUFs directly into the UMEM ring buffers, HCC achieves true kernel-bypass, driving USB4 RTT into the single-digit microsecond range.

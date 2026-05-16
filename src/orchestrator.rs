@@ -12,6 +12,7 @@ use crate::npu::draft_runner::DraftRunner;
 use crate::npu::context_compressor::ContextCompressor;
 use crate::session::metrics;
 use crate::session::session_manager::SessionManager;
+use crate::session::agentic::AgenticOrchestrator;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -38,6 +39,7 @@ pub struct HccOrchestrator {
     dovetail: Option<DovetailPipeline>,
     async_draft: AsyncDraftStage,
     session_manager: Arc<Mutex<SessionManager>>,
+    agentic_orchestrator: AgenticOrchestrator,
     step: u64,
     seq: u64,
     total_accepted: usize,
@@ -114,6 +116,7 @@ impl HccOrchestrator {
             cfg.session.max_sessions, cfg.session.max_context,
             cfg.cluster.memory_per_node_gb, &cfg.model,
         )));
+        let agentic_orchestrator = AgenticOrchestrator::new();
 
         let theoretical_tps = cfg.cluster.memory_bw_gbs / cfg.model.weight_read_gb();
         let spec_speedup = speculative_engine.speedup();
@@ -124,7 +127,7 @@ impl HccOrchestrator {
         Ok(Self {
             cfg, draft_runner, target_runner, migraphx, transport, kv_cache,
             compressor, calibrator, speculative_engine, dovetail, async_draft,
-            session_manager, step: 0, seq: 0, total_accepted: 0, total_drafted: 0,
+            session_manager, agentic_orchestrator, step: 0, seq: 0, total_accepted: 0, total_drafted: 0,
         })
     }
 
@@ -232,6 +235,9 @@ impl HccOrchestrator {
                     }
                 }).collect();
                 
+                // CPU Agentic Orchestration: parse draft stream for spec-tool pre-warming
+                self.agentic_orchestrator.process_draft_stream(&tokens);
+
                 self.total_drafted += tokens.len();
 
                 let cal_embedding = tokens.iter().flat_map(|t| t.kv_state.clone()).collect::<Vec<_>>();
@@ -283,6 +289,8 @@ impl HccOrchestrator {
                                 let accepted = accepted_prefix_len as usize;
                                 self.total_accepted += accepted;
                                 self.async_draft.verify(accepted);
+                                self.agentic_orchestrator.commit_accepted_tokens(accepted);
+                                
                                 // Feed acceptance rate to Dovetail adaptive tuning
                                 let rate = if self.total_drafted > 0 {
                                     self.total_accepted as f64 / self.total_drafted as f64

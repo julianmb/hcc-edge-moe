@@ -14,9 +14,53 @@
 
 ## What is HCC?
 
-**Heterogeneous Compute Cascade (HCC)** is a cutting-edge, hardware-aware Rust framework designed to run massive >300B parameter Mixture of Experts (MoE) models on consumer-grade hardware. Instead of relying on expensive $100K+ DGX datacenter rigs, HCC leverages the 128 GB Unified Memory (UMA) of two $3,000 ClawRig workstations connected via a standard 40 Gbps USB4 link. By intelligently distributing workloads—using the NPU for speculative draft generation and the iGPU for tree verification—HCC masks network latency to achieve near-datacenter inference speeds at the edge.
+**Heterogeneous Compute Cascade (HCC)** is a Rust research/runtime project for running very large MoE language models on local workstation-class hardware, especially dual ClawRig nodes connected over USB4.
 
-## v0.7.2 Runtime Hardening
+The narrow goal is not "yet another local LLM launcher." HCC asks a specific question:
+
+> Can a desk-side 256 GB UMA cluster run models that normally push people toward DGX-class systems, while hiding the latency of a cheap local interconnect?
+
+HCC combines four ideas:
+
+1. **Memory pooling:** split a model across two 128 GB UMA machines when it does not fit comfortably on one node.
+2. **Heterogeneous scheduling:** use CPU, iGPU, and NPU for the parts they are best suited to, instead of treating the workstation as only a GPU.
+3. **Latency hiding:** batch speculative draft tokens so USB4 crossings do useful work instead of stalling every token.
+4. **Measured local fast paths:** keep the single-node path honest with real llama.cpp runs before claiming a distributed speedup.
+
+## Why Not Existing Projects?
+
+HCC is meant to sit beside the current local-inference ecosystem, not replace it.
+
+| Project | Best at | Where HCC is different |
+|---|---|---|
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | Minimal-setup GGUF inference across many CPUs/GPUs, plus `llama-cli` and `llama-server`. | HCC uses llama.cpp as a local execution backend, then adds hardware-aware orchestration for multi-node UMA, USB4 latency hiding, NPU draft work, and ClawRig-specific measurement. |
+| [vLLM](https://www.vllm.ai/) | High-throughput production serving with strong KV-cache scheduling and batching. | HCC is not a datacenter serving stack; it targets low-cost local MoE inference where memory capacity and interconnect latency are the main constraints. |
+| [exo](https://github.com/exo-explore/exo) | Turning multiple local devices into a general AI cluster with automatic discovery and broad API compatibility. | HCC is narrower and lower-level: it focuses on a known dual-node ClawRig topology, Rust orchestration, UMA memory behavior, USB4 timing, and MoE-specific speculation. |
+| [Petals](https://github.com/bigscience-workshop/petals) | Decentralized inference/fine-tuning across Internet-connected volunteers. | HCC assumes a private, desk-side cluster with predictable low-latency links rather than unreliable wide-area peers. |
+
+Use HCC when the interesting problem is **"this model is too large for one consumer machine, but I want to run it locally without buying a datacenter box."**
+
+Do not use HCC if you only need a simple single-node chat server; use llama.cpp or vLLM directly.
+
+## Current Proof Points
+
+| Area | Current status |
+|---|---|
+| Qwen3.6-35B-A3B single-node fast path | Measured with `llama-cli --single-turn`: 226.9 tok/s prompt, 52.3 tok/s decode at 16K context. |
+| Runtime safety | `cargo test --locked` passes 40/40 tests. |
+| Distributed HCC path | Implemented as Rust orchestration and simulation/projection layers; some hardware paths remain experimental. |
+| Main claim to validate | Hiding USB4 latency with speculative batching and heterogeneous scheduling can make dual-node local MoE inference practical. |
+
+Start here:
+
+```bash
+cargo test --locked
+cargo run --locked -- measure --config configs/qwen36-35b-a3b.toml
+```
+
+## Project Log
+
+### v0.7.2 Runtime Hardening
 
 This pass keeps the measured ClawRig Qwen fast path on the direct llama.cpp decode path while making the newer acceleration scaffolding safer to build on:
 
@@ -26,7 +70,7 @@ This pass keeps the measured ClawRig Qwen fast path on the direct llama.cpp deco
 4. **Async draft backpressure fixed:** the PicoSpec stage now allows exactly `max_inflight` batches and refuses only the next overflow batch.
 5. **CSA and routing made deterministic:** sparse KV gather now scores FP4 indexers against the query, and simulated MoE routing now uses deterministic top-k expert selection instead of random experts.
 
-## v0.7.1 Architectural Updates (Agentic Storage & Continuous Alignment)
+### v0.7.1 Architectural Updates (Agentic Storage & Continuous Alignment)
 
 To push the absolute boundaries of the ClawRig dual-node cluster, we have introduced four micro-optimizations that eliminate the final vestiges of pipeline bubbles and USB4 drift:
 
@@ -35,11 +79,11 @@ To push the absolute boundaries of the ClawRig dual-node cluster, we have introd
 3. **Agentic DirectStorage (`io_uring`):** When the CPU Agentic Orchestrator detects a tool call requiring massive context (e.g., querying a 100GB vector DB), pulling it through the CPU causes I/O stalls. We implemented asynchronous `io_uring` to issue zero-copy reads that DMA the data straight from the Gen5 NVMe SSD into the iGPU's LPDDR5x pool, bypassing CPU bounce buffers.
 4. **True P2P DMA via Thunderbolt (Experimental):** Under custom BIOS configurations enabling IOMMU passthrough, HCC now supports treating the USB4/Thunderbolt link as a transparent PCIe bridge. This allows Node 2's iGPU to memory-map buffers directly from Node 1's GTT domain, achieving the holy grail of physical hardware zero-copy.
 
-## v0.7.0 Architectural Updates (Agentic Orchestration)
+### v0.7.0 Architectural Updates (Agentic Orchestration)
 
 Based on AMD's 2026 insights ("Agentic AI Changes the CPU-GPU Equation"), we added a dedicated CPU-bound Agentic Orchestration Layer. While the GPUs compute matrix math, the 16 Zen 5 cores continuously parse the draft token stream to validate JSON structures in real-time and speculatively pre-warm tool execution environments (e.g., DNS resolution, schema validation) before the iGPU even finishes verification. This completely hides tool-calling latency.
 
-## v0.6.0 Architectural Updates (DeepSeek-V4 & Native RDMA)
+### v0.6.0 Architectural Updates (DeepSeek-V4 & Native RDMA)
 
 We implemented four state-of-the-art 2026 techniques targeting the absolute limits of the ClawRig architecture:
 
@@ -48,14 +92,14 @@ We implemented four state-of-the-art 2026 techniques targeting the absolute limi
 3. **Thunderbolt 5 Native RDMA (Verbs):** The interconnect layer (`af_xdp.rs`) now includes a `libibverbs` / `rocSHMEM` backend. This upgrades our 17µs AF_XDP link to a native RDMA connection, pushing physical Node-to-Node latency down to **5–9 microseconds** and achieving true zero-copy networking.
 4. **UMA-Aware Zero-Copy Expert Swapping:** The orchestrator now treats Node 2's LPDDR5x as an over-subscribed memory pool. Instead of copying "cold" experts over a PCIe bus, the CPU simply swaps the GPU page table pointers, instantly mounting experts into the active context at 273 GB/s.
 
-## v0.5.0 Architectural Updates (Asynchronous & DeFT)
+### v0.5.0 Architectural Updates (Asynchronous & DeFT)
 
 We implemented two massive 2026 algorithmic breakthroughs to further decouple drafting latency and optimize LPDDR5x bandwidth:
 
 1. **Asynchronous Speculative Decoding (SSD / Saguaro):** We transitioned the `orchestrator.rs` from a synchronous loop to an asynchronous pipeline. Instead of waiting for the iGPU to verify Tree $N$, the NPU instantly fires-and-forgets the draft over USB4 and immediately begins drafting Tree $N+1$. This completely hides the NPU drafting latency, effectively pushing the theoretical speedup multiplier from 2.35x up to ~5.0x.
 2. **DeFT (Decoding with Flash Tree-Attention):** We replaced standard tree flattening with a `deft_flatten()` algorithm in `tree_attention.rs`. This implements "KV-Guided Grouping" to topologically sort the draft branches, ensuring that nodes sharing the longest common prefix are evaluated contiguously. This maximizes L1/L2 cache hits on the iGPU and slashes redundant KV cache memory reads by up to 73%.
 
-## v0.4.0 Architectural Updates (Next Gen)
+### v0.4.0 Architectural Updates (Next Gen)
 
 We implemented five cutting-edge features inspired by the latest 2026 research (DeepSeek-V4, MoE-Spec, EAGLE-3) to maximize the ClawRig cluster's theoretical limits:
 
@@ -65,7 +109,7 @@ We implemented five cutting-edge features inspired by the latest 2026 research (
 4. **RoCEv2 Kernel Bypass (rocSHMEM):** We expanded the network layer (`af_xdp.rs`) to support RDMA over Converged Ethernet (RoCEv2). This treats the dual-node cluster as a Partitioned Global Address Space (PGAS), theoretically dropping USB4 synchronization latency down to ~10µs.
 5. **Memory Bus Contention Shield:** Implemented a synchronization arbiter in the Orchestrator that intentionally staggers Node 1 (NPU prefill) and Node 2 (iGPU prefill) memory accesses. This physical isolation guarantees sustained 212 GB/s LPDDR5x yields by avoiding simultaneous memory bus peak saturation.
 
-## v0.3.0 Architectural Updates (May 2026)
+### v0.3.0 Architectural Updates (May 2026)
 
 We have implemented four boundary-pushing improvements to eliminate the remaining bottlenecks in the dual-node architecture:
 

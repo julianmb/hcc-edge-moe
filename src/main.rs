@@ -139,9 +139,9 @@ fn print_hardware_info() {
     println!("hipBLASLt: /opt/rocm/lib/libhipblaslt.so.0 present");
     println!();
     println!("── Performance Reference ──");
-    println!("  llama.cpp 7B Q4_0  PP512:  998 T/s (Vulkan)");
-    println!("  llama.cpp 7B Q4_0  TG128:  46.5 T/s");
-    println!("  llama.cpp 120B MoE  TG128:  52.3 T/s (HIP+hipBLASLt)");
+    println!("  llama.cpp 7B Q4_0  PP512:  998 tok/s (Vulkan)");
+    println!("  llama.cpp 7B Q4_0  TG128:  46.5 tok/s");
+    println!("  llama.cpp 120B MoE  TG128:  52.3 tok/s (HIP+hipBLASLt)");
     println!();
     println!("  Source: kyuz0/amd-strix-halo-toolboxes (Mar 2026)");
     println!();

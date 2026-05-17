@@ -208,7 +208,7 @@ requires a GRUB boot parameter change and reboot.
 
 ### Benchmarks (measured on a single $3,000 ClawRig)
 
-| Model | Size | Best PP (T/s) | Best TG (T/s) |
+| Model | Size | Best PP (tok/s) | Best TG (tok/s) |
 |---|---|---|---|
 | GLM-4.7-Flash | 30B / 3B active (MoE) | 163.3 | 66.8 |
 | Qwen3.5-35B-A3B (MoE) | 35B / 3B active | 150.0 | 67.6 |
@@ -256,7 +256,7 @@ speculative verification.
 | Model | Params | Active | Quant | Size | Runs on |
 |---|---|---|---|---|---|
 | **GLM-5.1-REAP-50** | ~380B | 40B | UD-Q3KM | ~161 GB | **Dual ClawRig** (256 GB) |
-| MiniMax-M2.5 | 230B | 10B | UD-Q3KM | ~110 GB | Single ClawRig (>40 T/s) |
+| MiniMax-M2.5 | 230B | 10B | UD-Q3KM | ~110 GB | Single ClawRig (>40 tok/s) |
 
 
 
@@ -272,7 +272,7 @@ speculative verification.
 | DGX H100 (new) | $210K–$307K | 10,200 W | $391 |
 | Mac Studio (2× M2 Ultra) | $12,000 | 240 W | $31.25 |
 
-At scale: a 20-unit single-node HCC fleet (20× $2,995 = $59.9K) delivers ~220 T/s aggregate at 2,400 W — no datacenter needed.
+At scale: a 20-unit single-node HCC fleet (20× $2,995 = $59.9K) delivers ~220 tok/s aggregate at 2,400 W — no datacenter needed.
 
 ---
 

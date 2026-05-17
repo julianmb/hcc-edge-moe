@@ -41,7 +41,7 @@ impl BenchmarkRunner {
         println!("Memory bandwidth:    {:.0} GB/s", bw);
         println!("Active weights:      {:.1} GB ({}B @ {:.2} B/weight)", 
             active_w, cfg.model.active_params_b, cfg.model.bytes_per_weight);
-        println!("Decode roofline:     {:.1} T/s", decode_tps);
+        println!("Decode roofline:     {:.1} tok/s", decode_tps);
 
         // 3. Speculative speedup
         let eng = SpeculativeEngine::new(
@@ -58,7 +58,7 @@ impl BenchmarkRunner {
         println!("Acceptance rate α:   {:.2}", cfg.speculative.acceptance_rate);
         println!("E[k] (Eq. 5):        {:.3}", ek);
         println!("Speedup S (Eq. 6):   {:.3}×", speedup);
-        println!("Effective decode:    {:.1} T/s", decode_tps * speedup);
+        println!("Effective decode:    {:.1} tok/s", decode_tps * speedup);
 
         report.effective_tps = decode_tps * speedup;
 

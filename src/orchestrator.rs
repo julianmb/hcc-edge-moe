@@ -139,7 +139,7 @@ impl HccOrchestrator {
 
         let theoretical_tps = cfg.cluster.memory_bw_gbs / cfg.model.weight_read_gb();
         let spec_speedup = speculative_engine.speedup();
-        tracing::info!("roofline decode: {theoretical_tps:.1} T/s per node, {:.1} T/s with speculation ({:.2}x)", 
+        tracing::info!("roofline decode: {theoretical_tps:.1} tok/s per node, {:.1} tok/s with speculation ({:.2}x)",
             theoretical_tps * spec_speedup, spec_speedup);
         tracing::info!(
             "KV cache: mixed-precision (K 8-bit FP8 + V 3-bit PolarQuant) via turboquant-rs"

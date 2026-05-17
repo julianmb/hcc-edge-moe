@@ -59,9 +59,9 @@ impl MeasureRunner {
         );
         println!("  S   = E[k] / (1 + γ·c/C) = {:.4}×", engine.speedup());
         let model_roofline_tps = cfg.cluster.memory_bw_gbs / cfg.model.weight_read_gb();
-        println!("  Model roofline: {:.1} T/s", model_roofline_tps);
+        println!("  Model roofline: {:.1} tok/s", model_roofline_tps);
         println!(
-            "  Predicted HCC throughput: {:.1} T/s",
+            "  Predicted HCC throughput: {:.1} tok/s",
             model_roofline_tps * engine.speedup()
         );
 

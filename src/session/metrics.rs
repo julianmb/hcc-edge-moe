@@ -34,7 +34,7 @@ pub fn record_kv_cache(sessions: usize, cache_gb: f64) {
     metrics::gauge!("hcc_active_sessions").set(sessions as f64);
 }
 
-/// Aggregate decode throughput in T/s (Hypothesis H2 validation target: ≥26.1 T/s).
+/// Aggregate decode throughput in tok/s (Hypothesis H2 validation target: ≥26.1 tok/s).
 pub fn record_decode_throughput(tokens_per_sec: f64) {
     metrics::gauge!("hcc_decode_tps").set(tokens_per_sec);
 }

@@ -41,7 +41,7 @@ impl SpeculativeEngine {
 
     /// Effective decode throughput multiplier under this spec config.
     ///
-    /// Paper §10.2: T_HCC = 11.1 × 2.35 ≈ 26.1 T/s
+    /// Paper §10.2: T_HCC = 11.1 × 2.35 ≈ 26.1 tok/s
     /// with multiplier = 1 − 0.7^6 / (1 − 0.7)(1 + 5 × 0.05) ≈ 2.35
     pub fn throughput_multiplier(&self) -> f64 {
         self.speedup()
@@ -136,7 +136,7 @@ mod tests {
     fn test_throughput_multiplier() {
         let eng = SpeculativeEngine::new(5, 0.7, 0.05);
         let m = eng.throughput_multiplier();
-        // Paper §10.2: 11.1 × 2.35 ≈ 26.1 T/s
+        // Paper §10.2: 11.1 × 2.35 ≈ 26.1 tok/s
         assert!((m - 2.35).abs() < 0.02, "multiplier={m}");
     }
 

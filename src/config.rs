@@ -490,7 +490,7 @@ impl HccConfig {
             "backend.ubatch_size must be >= 1"
         );
         assert!(self.backend.parallel >= 1, "backend.parallel must be >= 1");
-        // Measured roofline: 212 GB/s / 19.1 GB ≈ 11.1 T/s per node
+        // Measured roofline: 212 GB/s / 19.1 GB ≈ 11.1 tok/s per node
         let theoretical_tps = self.cluster.memory_bw_gbs / self.model.weight_read_gb();
         assert!(
             theoretical_tps > 5.0,

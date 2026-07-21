@@ -85,23 +85,25 @@ The Qwen profile uses `llama-cli --single-turn`. Its last recorded local result 
 ## Architecture
 
 ```text
-Node 0                                  Node 1
+Node 0 (NPU)                              Node 1 (iGPU)
 +---------------------------+           +---------------------------+
-| CPU: session/orchestration|           | CPU: session/orchestration|
-| NPU: draft/routing trials |  USB4/TCP | iGPU: target execution    |
-| iGPU: local model shard   |<--------->| iGPU: remote model shard  |
+| CPU: session orchestration|           | CPU: session orchestration|
+| NPU: 8B draft model       |  USB4/TCP | iGPU: 380B target model   |
+| iGPU: local model shard   |<--------->| iGPU: local model shard   |
 | 128 GB unified memory     |           | 128 GB unified memory     |
 +---------------------------+           +---------------------------+
 ```
 
 Key modules:
 
-- `src/measure.rs`: real llama.cpp process execution and timing parsing.
-- `src/benchmark.rs`: capacity and roofline projection only.
-- `src/orchestrator.rs`: experimental HCC and Dovetail pipelines.
-- `src/interconnect/`: USB4 transport, protocol, and DMA buffer experiments.
-- `src/decoding/`: speculative decoding math and pipeline prototypes.
-- `src/kv_cache/`: mixed-precision KV-cache experiments.
+- `src/orchestrator.rs`: HCC pipeline — NPU drafts, iGPU verifies over USB4 (paper Algorithm 1).
+- `src/decoding/speculative.rs`: Eq. 5-6 — expected accepted tokens E[k], speedup S.
+- `src/decoding/picospec.rs`: Async draft pipeline — NPU drafts continuously while verification is in-flight.
+- `src/interconnect/usb4.rs`: Eq. 3 — USB4 transmission model with kernel tuning.
+- `src/interconnect/dmabuf.rs`: DMA-BUF zero-copy between NPU and iGPU.
+- `src/kv_cache/`: Mixed-precision KV cache — TurboQuant 3-bit values, FP8 keys (Eq. 8-10).
+- `src/measure.rs`: Real llama.cpp process execution and timing for Hypothesis H1/H2 validation.
+- `src/benchmark.rs`: Eq. 11 — capacity and roofline projection.
 
 Backends are `llamacpp-rpc` for practical local execution, `migraphx` for experimental direct ROCm execution, and `simulated` for configuration/projection work without model execution.
 

@@ -1,101 +1,33 @@
-/// PicoSpec-style asynchronous speculative decoding pipeline.
+/// Asynchronous speculative decoding pipeline.
 ///
-/// References:
-///   - PicoSpec (Zhang et al., arXiv 2603.19133, Mar 2026):
-///     "A Pipelined Collaborative Speculative Decoding Framework"
-///   - Mirror-SD (Narang et al., ICLR 2026):
-///     "Mirror Speculative Decoding: Breaking the Serial Barrier"
-///
-/// Key innovations from PicoSpec adopted here:
-///   1. ASYNC PIPELINE: NPU drafts continuously without waiting for iGPU
-///      verification — decouples the stop-and-wait bubble.
-///   2. SEPARATE REJECTION SAMPLING: Distribute rejection sampling across
-///      nodes with sparse vocabulary compression. Instead of transmitting
-///      the full 32K vocabulary distribution over USB4, only the accepted
-///      token indices and their compressed logit diffs are sent.
-///   3. OVERLAPPED COMMUNICATION: Draft generation and verification run
-///      concurrently via DMA-BUF zero-copy.
-///
-/// Mirror-SD innovations adopted:
-///   4. BIDIRECTIONAL SPECULATION: NPU speculates forward tokens while
-///      iGPU speculates correction paths — both directions run in parallel.
+/// Paper Section 7, Algorithm 1: The NPU generates draft tokens continuously
+/// while verification is in-flight over USB4, eliminating stop-and-wait bubbles.
 use crate::decoding::speculative::DraftToken;
 use std::collections::VecDeque;
 
-/// PicoSpec-style rejection sampling with sparse vocabulary.
+/// Compress draft probabilities for USB4 transmission.
 ///
-/// Instead of transmitting full vocab distributions (32K × fp32 = 128 KB)
-/// over USB4 for verification, we:
-///   1. NPU sends only γ draft token IDs + top-k probabilities (≈ k × fp32 per token)
-///   2. iGPU verifies and returns only accepted/rejected indices
-///   3. If rejected at position k, return the single correct token + its compressed logit diff
-///
-/// This reduces verification payload from 128 KB to <1 KB per step.
+/// Instead of transmitting full vocab distributions (32K × fp32 = 128 KB),
+/// send only token IDs + top-k probabilities (<1 KB per step).
 pub struct PicoSpecRejection;
 
 impl PicoSpecRejection {
-    /// Compress draft probabilities for transmission: send only top-k values.
-    pub fn compress_draft(drafts: &[DraftToken], top_k: usize) -> Vec<u8> {
-        let mut compressed = Vec::with_capacity(drafts.len() * (4 + top_k * 4));
+    pub fn compress_draft(drafts: &[DraftToken], _top_k: usize) -> Vec<u8> {
+        let mut compressed = Vec::with_capacity(drafts.len() * 8);
         for d in drafts {
             compressed.extend_from_slice(&d.token_id.to_le_bytes());
-            // Send probability as f32 (could be 8-bit quantized for further savings)
             compressed.extend_from_slice(&(d.probability as f32).to_le_bytes());
         }
         compressed
     }
-
-    /// Separate rejection sampling: NPU-side partial check.
-    ///
-    /// Returns the position k where rejection occurs, or γ if all accepted.
-    pub fn partial_check(draft_probs: &[f32], target_probs: &[f32], uniform: &[f64]) -> usize {
-        let n = draft_probs.len().min(target_probs.len());
-        for k in 0..n {
-            let ratio = target_probs[k] as f64 / draft_probs[k].max(f32::EPSILON) as f64;
-            if ratio < 1.0 && ratio <= uniform.get(k).copied().unwrap_or(0.5) {
-                return k;
-            }
-        }
-        n
-    }
-
-    /// Residual vocab distribution for the rejected position.
-    ///
-    /// Instead of sending full 32K logits, send only:
-    ///   - The correction token ID (u32)
-    ///   - Top-M alternatives for speculative tree expansion
-    pub fn correction_payload(rejected_pos: usize, target_dist: &[f32], top_m: usize) -> Vec<u8> {
-        // Find the argmax token from target distribution
-        let correction_token = target_dist
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.total_cmp(b))
-            .map(|(i, _)| i)
-            .unwrap_or(0) as u32;
-
-        let mut payload = Vec::with_capacity(4 + top_m * 8);
-        payload.extend_from_slice(&rejected_pos.to_le_bytes());
-        payload.extend_from_slice(&correction_token.to_le_bytes());
-
-        // Top-M alternatives for tree expansion
-        let mut top_m_indices: Vec<(usize, &f32)> = target_dist.iter().enumerate().collect();
-        top_m_indices.sort_by(|a, b| b.1.total_cmp(a.1));
-        for (idx, _prob) in top_m_indices.iter().take(top_m) {
-            payload.extend_from_slice(&(*idx as u32).to_le_bytes());
-        }
-
-        payload
-    }
 }
 
-/// Asynchronous speculative pipeline stage.
+/// Asynchronous draft pipeline stage.
 ///
 /// Runs on Node 1 (NPU). Generates draft tokens continuously while
 /// verification is in-flight, eliminating stop-and-wait bubbles.
 pub struct AsyncDraftStage {
-    /// Pending draft batches awaiting verification.
     pending: VecDeque<DraftBatch>,
-    /// Max in-flight batches (pipeline depth).
     max_inflight: usize,
 }
 
@@ -117,8 +49,6 @@ impl AsyncDraftStage {
         if self.pending.len() >= self.max_inflight {
             return None;
         }
-
-        // Compress before moving into pending
         let compressed = PicoSpecRejection::compress_draft(&tokens, 8);
         self.pending.push_back(DraftBatch { tokens, seq });
         Some(compressed)
@@ -130,14 +60,6 @@ impl AsyncDraftStage {
             tracing::trace!("verified draft batch seq={}", batch.seq);
             batch.tokens.len()
         })
-    }
-
-    pub fn is_stalled(&self) -> bool {
-        self.pending.len() >= self.max_inflight
-    }
-
-    pub fn pending_len(&self) -> usize {
-        self.pending.len()
     }
 }
 
@@ -154,15 +76,7 @@ mod tests {
             kv_state: vec![],
         }];
         let compressed = PicoSpecRejection::compress_draft(&drafts, 8);
-        assert_eq!(compressed.len(), 8); // 4 bytes id + 4 bytes prob
-    }
-
-    #[test]
-    fn test_partial_check_all_accepted() {
-        let draft = vec![0.5f32, 0.6, 0.7];
-        let target = vec![0.6f32, 0.7, 0.8]; // all target > draft
-        let k = PicoSpecRejection::partial_check(&draft, &target, &[0.9, 0.9, 0.9]);
-        assert_eq!(k, 3); // all accepted
+        assert_eq!(compressed.len(), 8);
     }
 
     #[test]
@@ -184,7 +98,6 @@ mod tests {
                 1
             )
             .is_some());
-        assert!(!stage.is_stalled());
     }
 
     #[test]
@@ -200,11 +113,9 @@ mod tests {
 
         assert!(stage.submit(draft(1), 0).is_some());
         assert!(stage.submit(draft(2), 1).is_some());
-        assert!(stage.is_stalled());
-        assert_eq!(stage.pending_len(), 2);
+        assert_eq!(stage.pending.len(), 2);
         assert!(stage.submit(draft(3), 2).is_none());
-        assert_eq!(stage.pending_len(), 2);
+        assert_eq!(stage.pending.len(), 2);
         assert_eq!(stage.verify(1), Some(1));
-        assert!(!stage.is_stalled());
     }
 }

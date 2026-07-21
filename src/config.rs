@@ -10,7 +10,6 @@ pub struct HccConfig {
     pub kv_cache: KvCacheConfig,
     pub session: SessionConfig,
     pub backend: BackendConfig,
-    pub dovetail: DovetailConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,16 +221,6 @@ fn default_true() -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DovetailConfig {
-    /// Enable Dovetail pipeline (alternative to HCC).
-    pub enabled: bool,
-    /// Draft model depth (Dovetail finding: deeper = better).
-    pub draft_depth: usize,
-    /// Dynamic Gating Fusion initial alpha.
-    pub dgf_alpha: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeculativeConfig {
     /// Draft length γ (paper: 5).
     pub draft_len: usize,
@@ -287,7 +276,7 @@ impl Default for HccConfig {
     fn default() -> Self {
         Self {
             cluster: ClusterConfig {
-                node_count: 1,
+                node_count: 2,
                 node_id: 0,
                 // Measured: Strix Halo 128 GB LPDDR5x-8000 systems
                 memory_per_node_gb: 128.0,
@@ -374,11 +363,6 @@ impl Default for HccConfig {
                 spec_type: default_spec_type(),
                 startup_timeout_s: default_startup_timeout_s(),
                 extra_args: Vec::new(),
-            },
-            dovetail: DovetailConfig {
-                enabled: false,
-                draft_depth: 4,
-                dgf_alpha: 0.3,
             },
         }
     }

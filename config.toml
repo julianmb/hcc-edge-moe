@@ -1,8 +1,12 @@
 # Heterogeneous Compute Cascade (HCC) — Configuration
 # Ref: "Heterogeneous Compute Cascades" (Beltran, April 2026)
+#
+# Requires 2x Strix Halo nodes connected via dual USB4.
+# Node 0: NPU drafts 8B model, sends context + drafts over USB4.
+# Node 1: iGPU verifies 380B target model.
 
 [cluster]
-node_count = 1
+node_count = 2
 node_id = 0
 memory_per_node_gb = 128.0
 memory_bw_gbs = 212.0
@@ -55,8 +59,3 @@ hip_device = 0
 hipblaslt = true
 rocm_version = "7.2.3"
 pipeline = "hcc"
-
-[dovetail]
-enabled = false
-draft_depth = 4
-dgf_alpha = 0.3

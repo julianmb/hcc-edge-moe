@@ -29,6 +29,12 @@ pub struct ClusterConfig {
 pub struct ModelConfig {
     pub model_name: String,
     pub checkpoint_path: String,
+    /// Total parameters in billions. Used for capacity reporting, not decode roofline math.
+    #[serde(default)]
+    pub total_params_b: f64,
+    /// On-disk checkpoint size in GB. Zero means the artifact size is unknown.
+    #[serde(default)]
+    pub checkpoint_size_gb: f64,
     /// Hidden dimension H (paper: 6144).
     pub hidden_size: usize,
     /// Number of transformer layers (paper: 78).
@@ -291,6 +297,8 @@ impl Default for HccConfig {
             model: ModelConfig {
                 model_name: "GLM-5.1-REAP-50".into(),
                 checkpoint_path: "/models/glm-5.1-reap-50-udq3km".into(),
+                total_params_b: 380.0,
+                checkpoint_size_gb: 161.0,
                 hidden_size: 6144,
                 num_layers: 78,
                 num_experts: 128,
@@ -385,6 +393,17 @@ impl ModelConfig {
 }
 
 impl HccConfig {
+    /// Gross unified-memory capacity across all configured nodes.
+    pub fn cluster_memory_gb(&self) -> f64 {
+        self.cluster.node_count as f64 * self.cluster.memory_per_node_gb
+    }
+
+    /// Capacity left after loading model weights, before runtime and KV allocations.
+    pub fn checkpoint_headroom_gb(&self) -> Option<f64> {
+        (self.model.checkpoint_size_gb > 0.0)
+            .then(|| self.cluster_memory_gb() - self.model.checkpoint_size_gb)
+    }
+
     /// Validate all configuration parameters. Panics with a clear message on invalid values.
     pub fn validate(&self) {
         assert!(self.cluster.node_count >= 1, "need at least 1 node");
@@ -404,6 +423,15 @@ impl HccConfig {
         );
         assert!(self.model.hidden_size > 0, "hidden_size must be > 0");
         assert!(self.model.num_layers > 0, "num_layers must be > 0");
+        assert!(
+            self.model.total_params_b >= 0.0 && self.model.checkpoint_size_gb >= 0.0,
+            "total_params_b and checkpoint_size_gb must be >= 0"
+        );
+        assert!(
+            self.model.total_params_b == 0.0
+                || self.model.total_params_b >= self.model.active_params_b,
+            "total_params_b must be >= active_params_b"
+        );
         assert!(
             self.model.active_params_b > 0.0 && self.model.bytes_per_weight > 0.0,
             "active_params_b and bytes_per_weight must be > 0"

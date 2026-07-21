@@ -5,7 +5,7 @@
 /// speculative decoding claims with actual hardware measurements.
 use crate::decoding::speculative::DraftToken;
 use crate::decoding::tree_attention::DraftTree;
-use serde::{Deserialize, Serialize};
+
 
 pub struct DraftRunner {
     model_path: String,

@@ -1,8 +1,10 @@
+# GLM-5.1 REAP-50 feasibility profile. The benchmark command projects capacity; it does not load weights.
+
 # Heterogeneous Compute Cascade (HCC) — Configuration
 # Ref: "Heterogeneous Compute Cascades" (Beltran, April 2026)
 
 [cluster]
-node_count = 1
+node_count = 2
 node_id = 0
 memory_per_node_gb = 128.0
 memory_bw_gbs = 212.0
@@ -43,12 +45,12 @@ hadamard_rotate = true
 qjl_correct = true
 
 [session]
-max_sessions = 9
-max_context = 200000
+max_sessions = 1
+max_context = 16384
 static_batch = 1
 
 [backend]
-inference_engine = "llamacpp-rpc"
+inference_engine = "simulated"
 rpc_port = 50052
 model_path = "/models/model.gguf"
 hip_device = 0

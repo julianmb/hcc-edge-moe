@@ -1,8 +1,7 @@
-/// Benchmark subcommand: run roofline model validation against hardware.
+/// Feasibility subcommand: evaluate configured capacity and roofline assumptions.
 ///
-/// Measures actual throughput and compares against the paper's theoretical model.
-/// Results include: bandwidth test, decode throughput, prefill throughput,
-/// and the speculative speedup multiplier.
+/// This command does not load a model or measure inference. Use `measure` for
+/// observed prompt/decode performance.
 use crate::config::HccConfig;
 use crate::decoding::speculative::SpeculativeEngine;
 use crate::tuner::KernelTuner;
@@ -13,8 +12,10 @@ impl BenchmarkRunner {
     /// Run all benchmarks and print results.
     pub fn run_all(cfg: &HccConfig) -> anyhow::Result<BenchmarkReport> {
         println!("\n╔══════════════════════════════════════════╗");
-        println!("║     HCC Benchmark Suite                   ║");
+        println!("║     HCC Feasibility Projection                   ║");
         println!("╚══════════════════════════════════════════╝\n");
+
+        println!("  No model is loaded; throughput is projected.\n");
 
         let mut report = BenchmarkReport {
             bandwidth_gbs: 0.0,
@@ -31,19 +32,44 @@ impl BenchmarkRunner {
         println!("── Kernel Tuning ──");
         print!("{}", report.kernel_tune);
 
-        // 2. Roofline analysis
+        // 2. Capacity check
+        let cluster_memory_gb = cfg.cluster_memory_gb();
+        println!("\n── Model Capacity ──");
+        println!("Model:               {}", cfg.model.model_name);
+        if cfg.model.total_params_b > 0.0 {
+            println!("Total parameters:    {:.0}B", cfg.model.total_params_b);
+        }
+        println!("Active per token:    {:.1}B", cfg.model.active_params_b);
+        println!("Cluster memory:      {:.1} GB gross", cluster_memory_gb);
+        if let Some(headroom_gb) = cfg.checkpoint_headroom_gb() {
+            println!(
+                "Checkpoint size:     {:.1} GB",
+                cfg.model.checkpoint_size_gb
+            );
+            println!(
+                "Gross capacity fit:  {} ({:.1} GB before runtime + KV)",
+                if headroom_gb >= 0.0 { "YES" } else { "NO" },
+                headroom_gb
+            );
+        } else {
+            println!("Checkpoint size:     unknown (set model.checkpoint_size_gb)");
+        }
+
+        // 3. Roofline analysis
         let bw = cfg.cluster.memory_bw_gbs;
         let active_w = cfg.model.weight_read_gb();
         let decode_tps = bw / active_w.max(0.1);
         report.theoretical_decode_tps = decode_tps;
 
-        println!("\n── Roofline Model ──");
+        println!("\n── Decode Roofline (Projected) ──");
         println!("Memory bandwidth:    {:.0} GB/s", bw);
-        println!("Active weights:      {:.1} GB ({}B @ {:.2} B/weight)", 
-            active_w, cfg.model.active_params_b, cfg.model.bytes_per_weight);
+        println!(
+            "Active weights:      {:.1} GB ({}B @ {:.2} B/weight)",
+            active_w, cfg.model.active_params_b, cfg.model.bytes_per_weight
+        );
         println!("Decode roofline:     {:.1} tok/s", decode_tps);
 
-        // 3. Speculative speedup
+        // 4. Speculative speedup
         let eng = SpeculativeEngine::new(
             cfg.speculative.draft_len,
             cfg.speculative.acceptance_rate,
@@ -53,34 +79,50 @@ impl BenchmarkRunner {
         let speedup = eng.speedup();
         report.spec_multiplier = speedup;
 
-        println!("\n── Speculative Decoding ──");
+        println!("\n── Speculative Decoding (Assumed) ──");
         println!("Draft length γ:      {}", cfg.speculative.draft_len);
-        println!("Acceptance rate α:   {:.2}", cfg.speculative.acceptance_rate);
+        println!(
+            "Acceptance rate α:   {:.2}",
+            cfg.speculative.acceptance_rate
+        );
         println!("E[k] (Eq. 5):        {:.3}", ek);
         println!("Speedup S (Eq. 6):   {:.3}×", speedup);
         println!("Effective decode:    {:.1} tok/s", decode_tps * speedup);
 
         report.effective_tps = decode_tps * speedup;
 
-        // 4. Memory bandwidth probe (if on Strix Halo with ROCm)
-        println!("\n── Hardware Probe ──");
+        // 5. Configured backend details. No hardware is probed here.
+        println!("\n── Configured Backend ──");
+        println!("Backend: {}", cfg.backend.inference_engine);
         if cfg.backend.inference_engine == "llamacpp-rpc" {
             println!("Backend: llama.cpp RPC :{}", cfg.backend.rpc_port);
-            println!("hipBLASLt: {}", if cfg.backend.hipblaslt { "✅ enabled" } else { "❌ disabled" });
+            println!(
+                "hipBLASLt: {}",
+                if cfg.backend.hipblaslt {
+                    "✅ enabled"
+                } else {
+                    "❌ disabled"
+                }
+            );
             println!("GPU: gfx1151 (Radeon 8060S, 40 CUs @ 2.9 GHz)");
-            println!("Expected matmul perf: {:.1} TFLOPS (62% of 59.4 peak)", 59.4 * 0.62);
+            println!(
+                "Expected matmul perf: {:.1} TFLOPS (62% of 59.4 peak)",
+                59.4 * 0.62
+            );
         }
 
-        // 5. Config validation summary
+        // 6. Config summary
         println!("\n── Configuration ──");
         println!("Pipeline: {}", cfg.backend.pipeline);
         println!("Nodes: {}", cfg.cluster.node_count);
         println!("Memory per node: {} GB", cfg.cluster.memory_per_node_gb);
-        println!("USB4 links: {} ({:.0} Gbps, {:.0} µs RTT)", 
-            cfg.interconnect.link_count, cfg.interconnect.throughput_gbps, cfg.interconnect.rtt_us);
+        println!(
+            "USB4 links: {} ({:.0} Gbps, {:.0} µs RTT)",
+            cfg.interconnect.link_count, cfg.interconnect.throughput_gbps, cfg.interconnect.rtt_us
+        );
 
         println!("\n╔══════════════════════════════════════════╗");
-        println!("║  Validation complete                      ║");
+        println!("║  Projection complete                      ║");
         println!("╚══════════════════════════════════════════╝\n");
 
         Ok(report)

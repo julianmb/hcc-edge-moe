@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod benchmark;
 mod config;
 mod decoding;
@@ -14,7 +16,7 @@ mod tuner;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "hcch", about = "Heterogeneous Compute Cascade — distributed MoE inference across AMD Strix Halo nodes", version = "0.2.0")]
+#[command(name = "hcch", about = "Heterogeneous Compute Cascade - experimental MoE inference across ClawRig nodes", version = "0.2.0")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -36,12 +38,12 @@ enum Commands {
         #[arg(long)]
         model: String,
     },
-    /// Run benchmark suite (roofline validation)
+    /// Project model capacity and decode roofline; does not run inference
     Benchmark {
         #[arg(short, long, default_value = "config.toml")]
         config: String,
     },
-    /// Run real inference measurement against paper predictions
+    /// Run real llama.cpp inference and report measured performance
     Measure {
         #[arg(short, long, default_value = "config.toml")]
         config: String,
@@ -148,8 +150,8 @@ fn print_hardware_info() {
     println!("── Commands ──");
     println!("  hcch run              Start HCC orchestrator");
     println!("  hcch rpc-server       Launch llama.cpp RPC server");
-    println!("  hcch benchmark        Run roofline benchmark suite");
-    println!("  hcch measure          Run real inference vs paper predictions");
+    println!("  hcch benchmark        Project model fit and decode roofline");
+    println!("  hcch measure          Run and measure real llama.cpp inference");
     println!("  hcch tune             Check kernel tuning");
     println!("  hcch info             Show this info");
     println!();

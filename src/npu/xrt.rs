@@ -6,7 +6,7 @@
 /// This drops NPU drafting latency into the sub-millisecond regime.
 use libloading::{Library, Symbol};
 use std::sync::OnceLock;
-use std::ffi::CString;
+
 
 static XRT_LIB: OnceLock<Library> = OnceLock::new();
 

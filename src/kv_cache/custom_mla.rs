@@ -5,7 +5,7 @@
 ///
 /// Loads the compiled `libmla576.so` HIP kernel via FFI.
 
-use libloading::{Library, Symbol};
+use libloading::Library;
 use std::sync::OnceLock;
 
 static CUSTOM_HIP_LIB: OnceLock<Library> = OnceLock::new();
@@ -26,7 +26,7 @@ impl CustomMlaQuantizer {
         Self { dim: 576 }
     }
 
-    pub fn quantize_batch(&self, input_fp16: &[u16], batch_size: usize) -> anyhow::Result<(Vec<u8>, Vec<f32>)> {
+    pub fn quantize_batch(&self, _input_fp16: &[u16], batch_size: usize) -> anyhow::Result<(Vec<u8>, Vec<f32>)> {
         // In production:
         // 1. Allocate device memory for `output` (batch_size * 576 * 3 / 8 bytes)
         // 2. Allocate device memory for `norms` (batch_size * 4 bytes)

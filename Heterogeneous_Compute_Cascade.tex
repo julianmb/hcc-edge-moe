@@ -347,7 +347,7 @@ A naive alternative would be to execute the draft model on Node~1's iGPU. Howeve
     dashed_box/.style={draw=AbstractBorder, dashed, rounded corners, inner sep=0.3cm, fill=white}
 ]
 \node[box, fill=white] (input) {\textbf{Raw Context Window} (100K tokens)};
-\node[box, below left=0.8cm and 0.5cm of input, fill=HighlightGreen!15, draw=HighlightGreen, text width=4.5cm] (npu) {\textbf{XDNA 2 NPU (Node 1)}\\[2pt] 8B Draft Model (BFP16)\\Summarization + Drafting};
+\node[box, below left=0.8cm and 0.5cm of input, fill=HighlightGreen!15, draw=HighlightGreen, text width=4.5cm] (npu) {\textbf{XDNA 2 NPU (Node 1)}\\[2pt] 8B Draft Model (BFP16)};
 \node[box, below=0.6cm of npu, fill=PreprintBlue!15, draw=PreprintBlue, text width=4.5cm] (cpu) {\textbf{CPU Orchestrator}\\[2pt] DMA-BUF + TCP/IP Stack};
 \node[box, below right=0.8cm and 0.5cm of input, fill=AlertRed!15, draw=AlertRed, text width=4cm] (gpu1) {\textbf{iGPU Node 1}\\[2pt] MoE Layers 0--38\\3-bit KV Cache};
 \node[box, below=0.6cm of gpu1, fill=AlertRed!15, draw=AlertRed, text width=4cm] (gpu2) {\textbf{iGPU Node 2}\\[2pt] MoE Layers 39--77\\3-bit KV Cache};
@@ -365,8 +365,12 @@ A naive alternative would be to execute the draft model on Node~1's iGPU. Howeve
 \label{fig:architecture}
 \end{figure}
 
-\subsection{Accelerating Input: Cascaded Contextual Compression}
-The NPU is designed to execute deterministic pre-filtering and extractive summarization. Application-layer frameworks such as Cascaded Signal Refinement (CSR) \cite{csr} demonstrate that enterprise compliance workloads can be deterministically reduced by over 96\% before any LLM token is generated. By mapping CSR's Layer~1 deterministic routing and Layer~2 small-model screening to the XDNA~2 NPU's spatial dataflow array---which processes high-arithmetic-intensity operations natively at $<$5W---the activation payload transmitted across the USB4 bridge to the main MoE on the iGPU is reduced by $>$80\%. Combined with the empirically measured dual-USB4 throughput of 45 Gbps (Section 5.1), this projects a dramatically faster TTFT for large-scale RAG and compliance workloads.
+\subsection{Accelerating Input: Cascaded Contextual Compression (Planned)}
+\label{sec:compression_planned}
+
+\noindent\textit{This section describes a planned enhancement not yet implemented in the current codebase.}
+
+The NPU is designed to execute deterministic pre-filtering and extractive summarization. Application-layer frameworks such as Cascaded Signal Refinement (CSR) \cite{csr} demonstrate that enterprise compliance workloads can be deterministically reduced by over 96\% before any LLM token is generated. By mapping CSR's Layer~1 deterministic routing and Layer~2 small-model screening to the XDNA~2 NPU's spatial dataflow array---which processes high-arithmetic-intensity operations natively at $<$5W---the activation payload transmitted across the USB4 bridge to the main MoE on the iGPU is projected to be reduced by $>$80\%. Combined with the empirically measured dual-USB4 throughput of 45 Gbps (Section 5.1), this projects a dramatically faster TTFT for large-scale RAG and compliance workloads.
 
 \begin{figure}[ht!]
 \centering
@@ -694,21 +698,54 @@ This paper presents an \textbf{architectural blueprint and mathematical validati
 \textbf{Ongoing development.} Section 5.1 demonstrated empirical USB4 P2P latency of 17 $\mu$s with kernel tuning---already 30$\times$ below the unoptimized baseline. Further reduction to $\sim$10 $\mu$s via kernel-bypass RDMA over Thunderbolt (RoCEv2 \cite{rocev2}), leveraging the rocSHMEM GDA backend available in ROCm 7.x, is under investigation as a path to eliminating speculative amortization overhead entirely.
 
 
-\section{Post-Publication Architectural Upgrades (v0.7.1)}
-\label{sec:v071}
+\section{Current Implementation Status}
+\label{sec:implementation}
 
-Since the initial preprint, significant architectural enhancements have been integrated into the HCC codebase to push the boundaries of the Strix Halo platform:
+The HCC codebase (\texttt{github.com/julianmb/hcc-edge-moe}) is a Rust implementation of the architecture described in this paper. The following table maps each paper component to its implementation status:
 
-\begin{itemize}
-    \item \textbf{NPU-Offloaded MoE Routing:} To eliminate iGPU pipeline bubbles caused by evaluating small, dense gating networks, HCC now offloads the MoE router to the XDNA 2 NPU. The NPU asynchronously computes Top-K gating probabilities and writes the expert indices directly to a shared UMA buffer, allowing the iGPU to execute expert layers without interruption.
-    \item \textbf{Continuous Speculative KV-Correction (CSKVC):} To combat draft-model drift over long context windows, the target iGPU now computes the residual difference between its hidden states and the draft's hidden states. This residual is 1-bit quantized (re-using our QJL math) and appended to the \texttt{AF\_XDP} verification packet. The NPU continuously applies this micro-correction, artificially aligning the draft state with the target to sustain high acceptance rates ($\alpha$).
-    \item \textbf{Agentic DirectStorage (\texttt{io\_uring}):} The CPU Agentic Orchestrator now uses Linux \texttt{io\_uring} to issue zero-copy DMA reads straight from the system's Gen5 NVMe SSD into the iGPU's LPDDR5x pool. This completely bypasses CPU bounce buffers when pre-fetching massive contexts for speculatively executed tools (like local Vector DB queries).
-    \item \textbf{Agentic CPU Orchestration (v0.7.0):} Acknowledging the shifting CPU-GPU balance in Agentic AI, we implemented a dedicated CPU orchestration layer. The 16 Zen 5 cores now continuously parse the draft token stream, performing real-time JSON schema validation and speculatively pre-warming tool execution environments (e.g., DNS resolution) before the iGPU completes its verification forward pass.
-    \item \textbf{Speculative Tree Attention:} We replaced linear draft sequences with branching draft trees. By utilizing a 2D Tree Attention Mask, the iGPU evaluates multiple candidate branches simultaneously, exponentially increasing $\mathbb{E}[k]$ per USB4 network crossing.
-    \item \textbf{Native XRT FFI:} Draft generation now bypasses the local HTTP stack entirely. By dynamically linking to \texttt{libxrt\_core.so} and allocating zero-copy Buffer Objects (\texttt{xrt::bo}) directly in the LPDDR5x UMA, NPU dispatch latency is reduced to the sub-millisecond regime.
-    \item \textbf{AF\_XDP Kernel-Bypass:} To overcome the remaining 17 $\mu$s TCP/IP overhead over \texttt{thunderbolt-net}, we implemented an \texttt{AF\_XDP} zero-copy socket interface. By mapping DMA-BUFs directly into the UMEM ring buffers, HCC achieves true kernel-bypass, driving USB4 RTT into the single-digit microsecond range.
-    \item \textbf{Custom $d_{kv}=576$ HIP Kernel:} Generic quantization frameworks require power-of-2 dimensions, which forces GLM-5.1's $d_{kv}=576$ to be padded to 1024---wasting 44\% of the KV cache memory footprint. We wrote and integrated a custom ROCm HIP kernel that explicitly factors 576 into $512 + 64$ for the Fast Walsh-Hadamard Transform, eliminating all padding waste.
-\end{itemize}
+\begin{table}[ht!]
+\centering
+\caption{Implementation status of paper components.}
+\vspace{0.2cm}
+\begin{tabular}{p{5cm} p{3cm} p{5cm}}
+\toprule
+\textbf{Component} & \textbf{Status} & \textbf{Code Location} \\
+\midrule
+USB4 transmission model (Eq.~3) & Implemented & \texttt{src/interconnect/usb4.rs} \\
+Speculative speedup (Eq.~5--6) & Implemented & \texttt{src/decoding/speculative.rs} \\
+TurboQuant 3-bit KV (Eq.~8--10) & Implemented & \texttt{src/kv\_cache/mod.rs} \\
+DMA-BUF zero-copy & Implemented & \texttt{src/interconnect/dmabuf.rs} \\
+Async draft pipeline & Implemented & \texttt{src/decoding/picospec.rs} \\
+Kernel tuning (ASPM, BBR) & Implemented & \texttt{src/tuner.rs} \\
+Roofline projection (Eq.~11) & Implemented & \texttt{src/benchmark.rs} \\
+Experimental measurement & Implemented & \texttt{src/measure.rs} \\
+NPU draft model runner & Implemented & \texttt{src/npu/draft\_runner.rs} \\
+\midrule
+NPU context compression (Sec.~6.2) & Planned & Targeting Vitis AI VOE on XDNA 2 \\
+AF\_XDP kernel-bypass & Planned & Under investigation for $<$10 $\mu$s RTT \\
+Speculative tree attention & Planned & Extends Algorithm 1 with branching drafts \\
+\bottomrule
+\end{tabular}
+\label{tab:implementation}
+\end{table}
+
+\noindent All performance projections in this paper remain theoretical upper bounds. The codebase provides the infrastructure for empirical validation following the protocol in Section~\ref{sec:validation}.
+
+\section{Limitations}
+
+This paper acknowledges the following limitations:
+
+\textbf{Theoretical, not empirical.} All performance projections (2.35$\times$ decode throughput, 92\% TCO reduction, \$2.49/M tokens) are derived from roofline models and analytical bounds. Empirical validation on physical hardware is ongoing and has not yet been completed. The experimental protocol in Section~\ref{sec:validation} defines the path to empirical confirmation.
+
+\textbf{Two-node constraint.} HCC is architected for exactly two nodes connected via USB4. Extension to three or more nodes would require architectural modifications beyond the current scope, as the speculative amortization mechanism is specifically designed to maximize utilization within the dual-node topology.
+
+\textbf{Draft model alignment.} The projected $\alpha \approx 0.7$ acceptance rate assumes an architecturally aligned 8B draft model (e.g., distilled from GLM-5.1-REAP-50). Mismatched draft models may yield $\alpha \approx 0.4$, significantly reducing the speculative speedup. The availability of a suitable draft model for GLM-5.1-REAP-50 has not yet been confirmed.
+
+\textbf{Model availability.} GLM-5.1-REAP-50 is a custom REAP-pruned checkpoint. While the GLM-5.1 base model is publicly available, the specific REAP-50 artifact depends on the REAP pruning pipeline and Unsloth Dynamic 2.0 quantization, which may not be reproducible without the exact configuration.
+
+\textbf{Platform specificity.} The DMA-BUF zero-copy mechanism targets Linux with ROCm 7.2+. The architecture does not generalize to Windows, macOS, or non-AMD hardware without significant modification.
+
+\textbf{Context compression not implemented.} The Cascaded Contextual Compression described in Section~\ref{sec:compression_planned} is a planned enhancement. The current codebase transmits full activation payloads over USB4 without NPU-side summarization.
 
 \section{Conclusion}
 

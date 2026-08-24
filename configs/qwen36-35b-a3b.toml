@@ -81,8 +81,3 @@ reasoning = "off"
 spec_type = "none"
 startup_timeout_s = 300
 extra_args = []
-
-[dovetail]
-enabled = false
-draft_depth = 4
-dgf_alpha = 0.3

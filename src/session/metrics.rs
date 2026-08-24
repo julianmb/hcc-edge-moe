@@ -20,6 +20,15 @@ pub fn record_speculative_step(accepted: usize, draft_len: usize, elapsed_us: f6
     }
 }
 
+/// Record observed per-step acceptance (verified tokens vs drafts offered).
+pub fn record_acceptance(accepted: usize, drafted: usize) {
+    let rate = accepted as f64 / drafted.max(1) as f64;
+    if rate.is_finite() && rate >= 0.0 {
+        metrics::histogram!("hcc_acceptance_rate").record(rate);
+        metrics::counter!("hcc_tokens_accepted_total").increment(accepted as u64);
+    }
+}
+
 /// Record USB4 transport metrics.
 pub fn record_transport(bytes: u64, rtt_us: f64) {
     metrics::counter!("hcc_transport_bytes_total").increment(bytes);

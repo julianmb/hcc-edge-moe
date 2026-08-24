@@ -154,9 +154,22 @@ impl Usb4Transport {
         Ok(encoded)
     }
 
-    /// Receive a DMA-BUF descriptor (zero-copy from remote).
+    /// Receive the next inbound payload as a DMA-BUF descriptor.
+    ///
+    /// Pulls a real packet from the RX queue and copies its payload into
+    /// shared memory. Errors when no packet is available rather than
+    /// fabricating data.
     pub async fn recv_dmabuf(&mut self) -> anyhow::Result<DmaBufDescriptor> {
-        let desc = DmaBufDescriptor::allocate(65536)?;
+        let bytes = self
+            .rx_chan
+            .recv()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("transport closed while waiting for dmabuf"))?;
+        let packet: Usb4Packet = bincode::deserialize(&bytes)
+            .map_err(|e| anyhow::anyhow!("malformed packet on wire: {e}"))?;
+        self.packets_received += 1;
+        let mut desc = DmaBufDescriptor::allocate(packet.payload.len().max(1))?;
+        desc.write(&packet.payload)?;
         Ok(desc)
     }
 

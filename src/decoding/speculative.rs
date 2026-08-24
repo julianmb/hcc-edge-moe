@@ -146,4 +146,11 @@ mod tests {
         let g = eng.optimal_draft_len(20);
         assert!((3..=8).contains(&g), "optimal γ={g} should be in [3,8]");
     }
+
+    #[test]
+    fn test_alpha_one_is_finite() {
+        let eng = SpeculativeEngine::new(5, 1.0, 0.05);
+        assert!((eng.expected_accepted() - 6.0).abs() < 1e-9);
+        assert!(eng.speedup().is_finite());
+    }
 }

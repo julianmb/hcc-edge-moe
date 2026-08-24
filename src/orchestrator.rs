@@ -33,11 +33,14 @@ pub struct HccOrchestrator {
     seq: u64,
     total_accepted: usize,
     total_drafted: usize,
+    window_start: std::time::Instant,
+    window_accepted: usize,
 }
 
 impl HccOrchestrator {
     pub async fn new(cfg: HccConfig) -> anyhow::Result<Self> {
         cfg.validate();
+        cfg.validate_hcc_topology();
 
         let transport = Arc::new(Mutex::new(
             Usb4Transport::new(
@@ -115,6 +118,8 @@ impl HccOrchestrator {
             seq: 0,
             total_accepted: 0,
             total_drafted: 0,
+            window_start: std::time::Instant::now(),
+            window_accepted: 0,
         })
     }
 
@@ -169,6 +174,7 @@ impl HccOrchestrator {
 
             if let Some(draft) = &self.draft_runner {
                 // Step 1: NPU generates γ draft tokens
+                let step_start = std::time::Instant::now();
                 let tokens = draft
                     .lock()
                     .await
@@ -178,9 +184,9 @@ impl HccOrchestrator {
                 self.total_drafted += tokens.len();
 
                 metrics::record_speculative_step(
+                    0,
                     tokens.len(),
-                    self.speculative_engine.draft_len,
-                    0.0,
+                    step_start.elapsed().as_secs_f64() * 1e6,
                 );
 
                 // Step 2: Send draft batch over USB4 as single TCP/IP crossing
@@ -211,13 +217,23 @@ impl HccOrchestrator {
             self.step += 1;
 
             if self.step % 50 == 0 {
+                let elapsed_s = self.window_start.elapsed().as_secs_f64();
+                let delta = self.total_accepted - self.window_accepted;
+                let tps = if elapsed_s > 0.0 {
+                    delta as f64 / elapsed_s
+                } else {
+                    0.0
+                };
+                self.window_start = std::time::Instant::now();
+                self.window_accepted = self.total_accepted;
+
                 let rate = if self.total_drafted > 0 {
                     self.total_accepted as f64 / self.total_drafted as f64
                 } else {
                     0.0
                 };
-                tracing::debug!("step={} accepted_rate={rate:.3}", self.step);
-                metrics::record_decode_throughput(self.total_accepted as f64 / 50.0);
+                tracing::debug!("step={} accepted_rate={rate:.3} tok/s={tps:.2}", self.step);
+                metrics::record_decode_throughput(tps);
                 let kv_len = self.kv_cache.lock().await.len();
                 metrics::record_kv_cache(
                     self.session_manager.lock().await.session_count(),
@@ -239,6 +255,7 @@ impl HccOrchestrator {
                 let accepted = accepted_prefix_len as usize;
                 self.total_accepted += accepted;
                 self.async_draft.verify(accepted);
+                metrics::record_acceptance(accepted, self.speculative_engine.draft_len);
             }
         }
     }

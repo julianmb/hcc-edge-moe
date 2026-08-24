@@ -9,6 +9,7 @@ pub struct DraftRunner {
     model_path: String,
     api_url: String,
     pub(crate) params_b: f64,
+    fallback_steps: u64,
 }
 
 impl DraftRunner {
@@ -17,11 +18,17 @@ impl DraftRunner {
             model_path: model_path.to_string(),
             api_url: format!("http://127.0.0.1:{api_port}/v1/chat/completions"),
             params_b,
+            fallback_steps: 0,
         }
     }
 
     /// Generate γ linear draft tokens for the speculative decoding loop.
-    pub async fn generate_drafts(&self, gamma: usize) -> anyhow::Result<Vec<DraftToken>> {
+    ///
+    /// Parses the OpenAI-compatible logprobs schema (`content[].token`,
+    /// `content[].logprob`). When the backend cannot serve logprobs, falls
+    /// back to a deterministic placeholder sequence; every fallback logs a
+    /// warning and increments `fallback_steps` so outages stay visible.
+    pub async fn generate_drafts(&mut self, gamma: usize) -> anyhow::Result<Vec<DraftToken>> {
         let client = reqwest::Client::new();
 
         let body = serde_json::json!({
@@ -29,43 +36,80 @@ impl DraftRunner {
             "messages": [{"role": "user", "content": "Write a short story about AI."}],
             "max_tokens": gamma,
             "temperature": 0.0,
-            "return_logits": true,
+            "logprobs": true,
         });
 
-        let resp = client.post(&self.api_url).json(&body).send().await?;
-        let result: serde_json::Value = resp.json().await?;
+        let resp = match client.post(&self.api_url).json(&body).send().await {
+            Ok(resp) => match resp.error_for_status() {
+                Ok(resp) => resp,
+                Err(e) => {
+                    tracing::warn!("draft backend rejected request: {e}");
+                    self.fallback_steps += 1;
+                    return Ok(Self::placeholder_drafts(gamma));
+                }
+            },
+            Err(e) => {
+                tracing::warn!("draft backend unreachable: {e}");
+                self.fallback_steps += 1;
+                return Ok(Self::placeholder_drafts(gamma));
+            }
+        };
+
+        let result: serde_json::Value = match resp.json().await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("draft backend returned non-JSON body: {e}");
+                self.fallback_steps += 1;
+                return Ok(Self::placeholder_drafts(gamma));
+            }
+        };
 
         let mut tokens = Vec::new();
-
-        if let Some(choices) = result["choices"].as_array() {
-            for choice in choices {
-                if let Some(logprobs) = choice.get("logprobs") {
-                    if let Some(content) = logprobs.get("content").and_then(|c| c.as_array()) {
-                        for token_info in content {
-                            let token_id = token_info["token_id"].as_u64().unwrap_or(0) as u32;
-                            let probability = token_info["prob"].as_f64().unwrap_or(0.0);
-                            tokens.push(DraftToken {
-                                token_id,
-                                probability,
-                                kv_state: vec![],
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fallback for non-logprob backends
-        if tokens.is_empty() {
-            for _ in 0..gamma {
+        if let Some(content) = result["choices"]
+            .get(0)
+            .and_then(|c| c["logprobs"]["content"].as_array())
+        {
+            for info in content {
+                let token_str = info["token"].as_str().unwrap_or("");
+                let probability = info["logprob"].as_f64().map(f64::exp).unwrap_or(0.0);
                 tokens.push(DraftToken {
-                    token_id: fastrand::u32(..) % 32000,
-                    probability: 0.8,
+                    token_id: fnv1a(token_str),
+                    probability: probability.clamp(0.0, 1.0),
                     kv_state: vec![],
                 });
             }
         }
 
+        if tokens.is_empty() {
+            tracing::warn!("draft backend served no logprobs; using deterministic placeholders");
+            self.fallback_steps += 1;
+            return Ok(Self::placeholder_drafts(gamma));
+        }
+
+        tokens.truncate(gamma);
         Ok(tokens)
     }
+
+    pub fn fallback_count(&self) -> u64 {
+        self.fallback_steps
+    }
+
+    fn placeholder_drafts(gamma: usize) -> Vec<DraftToken> {
+        (0..gamma)
+            .map(|i| DraftToken {
+                token_id: i as u32,
+                probability: 0.5,
+                kv_state: vec![],
+            })
+            .collect()
+    }
+}
+
+fn fnv1a(s: &str) -> u32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in s.as_bytes() {
+        h ^= u32::from(*b);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h
 }

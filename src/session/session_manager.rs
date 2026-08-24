@@ -51,6 +51,9 @@ impl SessionManager {
 
     /// Create a new session.
     pub fn create_session(&mut self, id: u64, max_tokens: usize) -> anyhow::Result<()> {
+        if self.sessions.iter().any(|s| s.id == id) {
+            anyhow::bail!("session id {id} already exists");
+        }
         if self.sessions.len() >= self.max_sessions {
             anyhow::bail!("max sessions ({}) reached", self.max_sessions);
         }
@@ -105,8 +108,8 @@ impl SessionManager {
     /// Update session token count.
     pub fn advance(&mut self, session_id: u64, tokens: usize) {
         if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
-            session.tokens_generated += tokens;
-            session.context_len += tokens;
+            session.tokens_generated = session.tokens_generated.saturating_add(tokens);
+            session.context_len = session.context_len.saturating_add(tokens);
             if session.tokens_generated >= session.max_tokens {
                 session.state = SessionState::Completed;
             }
@@ -131,7 +134,8 @@ impl SessionManager {
             return self.max_sessions;
         }
         let free_gb = self.memory_per_node_gb * 2.0 * 0.336; // ~86 GB free after weights+OS
-        (free_gb / kv_per_session_gb) as usize
+        let capacity = (free_gb / kv_per_session_gb) as usize;
+        capacity.min(self.max_sessions)
     }
 
     pub fn session_count(&self) -> usize {

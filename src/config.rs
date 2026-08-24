@@ -502,11 +502,50 @@ impl HccConfig {
             "backend.ubatch_size must be >= 1"
         );
         assert!(self.backend.parallel >= 1, "backend.parallel must be >= 1");
+        assert!(self.interconnect.mtu > 0, "interconnect.mtu must be > 0");
+        assert!(
+            self.interconnect.rtt_us.is_finite() && self.interconnect.rtt_us >= 0.0,
+            "interconnect.rtt_us must be finite and >= 0"
+        );
+        assert!(
+            self.interconnect.tcp_overhead_us.is_finite()
+                && self.interconnect.tcp_overhead_us >= 0.0,
+            "interconnect.tcp_overhead_us must be finite and >= 0"
+        );
+        assert!(
+            self.kv_cache.block_size > 0,
+            "kv_cache.block_size must be > 0"
+        );
+        assert!(
+            self.model.num_experts == 0 || self.model.top_k <= self.model.num_experts,
+            "model.top_k ({}) cannot exceed num_experts ({})",
+            self.model.top_k,
+            self.model.num_experts
+        );
         // Measured roofline: 212 GB/s / 19.1 GB ≈ 11.1 tok/s per node
         let theoretical_tps = self.cluster.memory_bw_gbs / self.model.weight_read_gb();
         assert!(
-            theoretical_tps > 5.0,
+            theoretical_tps > 5.0 && theoretical_tps.is_finite(),
             "theoretical decode TPS too low: {theoretical_tps:.1}. Check memory_bw_gbs and active_params_b"
+        );
+    }
+
+    /// Strict topology check for the HCC dual-node orchestrator path.
+    ///
+    /// The paper's speculative amortization is designed for exactly two nodes
+    /// (draft on Node 0's NPU, verify on Node 1's iGPU). Projection and
+    /// measurement commands may run single-node configs; `hcch run` may not.
+    pub fn validate_hcc_topology(&self) {
+        assert!(
+            self.cluster.node_count == 2,
+            "HCC orchestrator requires exactly 2 nodes (paper topology); got {}. \
+             Use benchmark/measure for single-node projection.",
+            self.cluster.node_count
+        );
+        assert!(
+            self.cluster.node_id < 2,
+            "node_id {} out of range [0, 2)",
+            self.cluster.node_id
         );
     }
 }

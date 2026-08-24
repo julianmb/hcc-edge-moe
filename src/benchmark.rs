@@ -19,7 +19,6 @@ impl BenchmarkRunner {
 
         let mut report = BenchmarkReport {
             bandwidth_gbs: 0.0,
-            decode_tps_7b: 0.0,
             decode_tps_moe: 0.0,
             spec_multiplier: 0.0,
             theoretical_decode_tps: 0.0,
@@ -145,7 +144,6 @@ impl BenchmarkRunner {
 #[derive(Debug, Clone)]
 pub struct BenchmarkReport {
     pub bandwidth_gbs: f64,
-    pub decode_tps_7b: f64,
     pub decode_tps_moe: f64,
     pub spec_multiplier: f64,
     pub theoretical_decode_tps: f64,

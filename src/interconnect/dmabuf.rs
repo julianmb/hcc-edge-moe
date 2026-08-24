@@ -28,7 +28,7 @@ impl DmaBufDescriptor {
     ///   - ROCm hipImportExtBuffer() for iGPU import
     pub fn allocate(size: usize) -> anyhow::Result<Self> {
         let memfd = memfd_create("hcc-dmabuf")?;
-        memfd.set_len(size as u64)?;
+        memfd.set_len(size.max(1) as u64)?;
 
         let mmap = unsafe { MmapMut::map_mut(&memfd)? };
         let fd = Some(memfd.into_raw_fd());
@@ -37,15 +37,23 @@ impl DmaBufDescriptor {
     }
 
     /// Write data into the shared buffer.
+    ///
+    /// Errors if `data` exceeds the allocation rather than silently truncating.
     pub fn write(&mut self, data: &[u8]) -> anyhow::Result<()> {
-        let len = data.len().min(self.size);
-        self.mmap[..len].copy_from_slice(&data[..len]);
+        if data.len() > self.size {
+            anyhow::bail!(
+                "dmabuf payload {} bytes exceeds allocation of {} bytes",
+                data.len(),
+                self.size
+            );
+        }
+        self.mmap[..data.len()].copy_from_slice(data);
         Ok(())
     }
 
     /// Read data from the shared buffer.
     pub fn as_slice(&self) -> &[u8] {
-        &self.mmap[..self.size]
+        &self.mmap[..self.size.min(self.mmap.len())]
     }
 
     /// Export the buffer as a file descriptor for cross-driver sharing.
@@ -74,7 +82,7 @@ fn memfd_create(name: &str) -> std::io::Result<File> {
     let cname = std::ffi::CString::new(name).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "name contains nul byte")
     })?;
-    let fd = unsafe { libc::memfd_create(cname.as_ptr(), 0) };
+    let fd = unsafe { libc::memfd_create(cname.as_ptr(), libc::MFD_CLOEXEC) };
     if fd < 0 {
         return Err(std::io::Error::last_os_error());
     }

@@ -62,7 +62,8 @@ pub enum SessionStatus {
     Completed,
 }
 
-/// Serialization overhead: <1 µs via rkyv zero-copy.
+/// Serialization via bincode (fixed-int encoding). Payload sizes below are
+/// estimates for capacity planning; the wire format is bincode-encoded.
 impl HccMessage {
     pub fn msg_type(&self) -> &str {
         match self {
@@ -84,14 +85,18 @@ impl HccMessage {
             Self::PrefillPayload {
                 compressed_activations,
                 ..
-            } => 8 + compressed_activations.len(),
-            Self::DraftBatch { hidden_states, .. } => 8 + hidden_states.len() * 4,
+            } => 8usize.saturating_add(compressed_activations.len()),
+            Self::DraftBatch { hidden_states, .. } => {
+                8usize.saturating_add(hidden_states.len().saturating_mul(4))
+            }
             Self::VerificationResult {
                 logits,
                 probabilities,
                 ..
-            } => logits.len() * 4 + probabilities.len() * 4 + 1,
-            Self::ContextSync { kv_state_delta, .. } => 8 + kv_state_delta.len(),
+            } => 1usize
+                .saturating_add(logits.len().saturating_mul(4))
+                .saturating_add(probabilities.len().saturating_mul(4)),
+            Self::ContextSync { kv_state_delta, .. } => 8usize.saturating_add(kv_state_delta.len()),
             _ => 64,
         }
     }
@@ -112,7 +117,9 @@ pub struct HccPacketHeader {
 
 impl HccPacketHeader {
     pub const MAGIC: [u8; 4] = [b'H', b'C', b'C', 0];
-    pub const SIZE: usize = 32;
+
+    #[cfg(test)]
+    const SIZE: usize = std::mem::size_of::<Self>();
 
     pub fn new(msg_type: u8, seq: u64, src: u8, dst: u8, payload_len: u32) -> Self {
         Self {
@@ -142,5 +149,13 @@ mod tests {
         let encoded = bincode::serialize(&msg).unwrap();
         let decoded: HccMessage = bincode::deserialize(&encoded).unwrap();
         assert_eq!(decoded.msg_type(), "draft");
+    }
+
+    #[test]
+    fn test_packet_header_size_matches_struct() {
+        assert_eq!(
+            HccPacketHeader::SIZE,
+            std::mem::size_of::<HccPacketHeader>()
+        );
     }
 }

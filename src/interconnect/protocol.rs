@@ -40,8 +40,14 @@ pub enum HccMessage {
     },
 
     /// Session management.
-    SessionRequest { session_id: u64, max_tokens: u32 },
-    SessionResponse { session_id: u64, status: SessionStatus },
+    SessionRequest {
+        session_id: u64,
+        max_tokens: u32,
+    },
+    SessionResponse {
+        session_id: u64,
+        status: SessionStatus,
+    },
 
     /// Heartbeat / health check.
     Ping(u64),
@@ -75,18 +81,17 @@ impl HccMessage {
     /// Size in bytes (approximate).
     pub fn byte_size(&self) -> usize {
         match self {
-            Self::PrefillPayload { compressed_activations, .. } => {
-                8 + compressed_activations.len()
-            }
-            Self::DraftBatch { hidden_states, .. } => {
-                8 + hidden_states.len() * 4
-            }
-            Self::VerificationResult { logits, probabilities, .. } => {
-                logits.len() * 4 + probabilities.len() * 4 + 1
-            }
-            Self::ContextSync { kv_state_delta, .. } => {
-                8 + kv_state_delta.len()
-            }
+            Self::PrefillPayload {
+                compressed_activations,
+                ..
+            } => 8 + compressed_activations.len(),
+            Self::DraftBatch { hidden_states, .. } => 8 + hidden_states.len() * 4,
+            Self::VerificationResult {
+                logits,
+                probabilities,
+                ..
+            } => logits.len() * 4 + probabilities.len() * 4 + 1,
+            Self::ContextSync { kv_state_delta, .. } => 8 + kv_state_delta.len(),
             _ => 64,
         }
     }
@@ -95,7 +100,7 @@ impl HccMessage {
 /// Compact binary header for fast dispatch.
 #[repr(C, packed)]
 pub struct HccPacketHeader {
-    pub magic: [u8; 4],      // b"HCC\0"
+    pub magic: [u8; 4], // b"HCC\0"
     pub msg_type: u8,
     pub seq: u64,
     pub src_node: u8,

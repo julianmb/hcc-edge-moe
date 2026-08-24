@@ -20,13 +20,17 @@ impl SpeculativeEngine {
         }
     }
 
-    /// Expected number of accepted tokens per network crossing — Eq. 5.
+    /// Expected number of generated tokens per step (including target bonus) — Eq. 5.
     ///
     /// E[k] = (1 - α^{γ+1}) / (1 - α)
     pub fn expected_accepted(&self) -> f64 {
-        let alpha = self.acceptance_rate;
+        let alpha = self.acceptance_rate.clamp(0.0, 1.0);
         let gamma = self.draft_len as f64;
-        (1.0 - alpha.powf(gamma + 1.0)) / (1.0 - alpha)
+        if (1.0 - alpha).abs() < 1e-9 {
+            gamma + 1.0
+        } else {
+            (1.0 - alpha.powf(gamma + 1.0)) / (1.0 - alpha)
+        }
     }
 
     /// Theoretical speedup of the speculative pipeline — Eq. 6.
@@ -35,7 +39,7 @@ impl SpeculativeEngine {
     pub fn speedup(&self) -> f64 {
         let ek = self.expected_accepted();
         let gamma = self.draft_len as f64;
-        let overhead = 1.0 + gamma * self.draft_cost_ratio;
+        let overhead = (1.0 + gamma * self.draft_cost_ratio.max(0.0)).max(1e-9);
         ek / overhead
     }
 
@@ -51,11 +55,7 @@ impl SpeculativeEngine {
     ///
     /// Paper Algorithm 1, line 4:
     /// "Accept tokens up to position k ≤ γ using rejection sampling."
-    pub fn rejection_sample(
-        &self,
-        drafts: &[DraftToken],
-        verified: &[VerifiedToken],
-    ) -> usize {
+    pub fn rejection_sample(&self, drafts: &[DraftToken], verified: &[VerifiedToken]) -> usize {
         let max_k = drafts.len().min(verified.len());
         for k in 0..max_k {
             if !self.accept_token(&drafts[k], &verified[k]) {
@@ -144,6 +144,6 @@ mod tests {
     fn test_optimal_draft_len() {
         let eng = SpeculativeEngine::new(5, 0.7, 0.05);
         let g = eng.optimal_draft_len(20);
-        assert!(g >= 3 && g <= 8, "optimal γ={g} should be in [3,8]");
+        assert!((3..=8).contains(&g), "optimal γ={g} should be in [3,8]");
     }
 }

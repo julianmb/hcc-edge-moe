@@ -1,6 +1,6 @@
+use memmap2::MmapMut;
 use std::fs::File;
 use std::os::unix::io::{FromRawFd, IntoRawFd, RawFd};
-use memmap2::MmapMut;
 
 /// DMA-BUF descriptor — zero-copy memory sharing between amdxdna (NPU)
 /// and amdgpu (iGPU) drivers, and across USB4.
@@ -62,7 +62,9 @@ impl DmaBufDescriptor {
 impl Drop for DmaBufDescriptor {
     fn drop(&mut self) {
         if let Some(fd) = self.fd.take() {
-            unsafe { libc::close(fd); }
+            unsafe {
+                libc::close(fd);
+            }
         }
     }
 }

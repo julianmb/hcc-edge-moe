@@ -58,8 +58,10 @@ impl BenchmarkRunner {
         // 3. Roofline analysis
         let bw = cfg.cluster.memory_bw_gbs;
         let active_w = cfg.model.weight_read_gb();
-        let decode_tps = bw / active_w.max(0.1);
+        let decode_tps = bw / active_w.max(0.001);
+        report.bandwidth_gbs = bw;
         report.theoretical_decode_tps = decode_tps;
+        report.decode_tps_moe = decode_tps;
 
         println!("\n── Decode Roofline (Projected) ──");
         println!("Memory bandwidth:    {:.0} GB/s", bw);
@@ -70,23 +72,34 @@ impl BenchmarkRunner {
         println!("Decode roofline:     {:.1} tok/s", decode_tps);
 
         // 4. Speculative speedup
-        let eng = SpeculativeEngine::new(
-            cfg.speculative.draft_len,
-            cfg.speculative.acceptance_rate,
-            cfg.speculative.draft_cost_ratio,
-        );
-        let ek = eng.expected_accepted();
-        let speedup = eng.speedup();
+        let has_draft = cfg.speculative.draft_params_b > 0.0;
+        let (ek, speedup) = if has_draft {
+            let eng = SpeculativeEngine::new(
+                cfg.speculative.draft_len,
+                cfg.speculative.acceptance_rate,
+                cfg.speculative.draft_cost_ratio,
+            );
+            (eng.expected_accepted(), eng.speedup())
+        } else {
+            (1.0, 1.0)
+        };
         report.spec_multiplier = speedup;
 
-        println!("\n── Speculative Decoding (Assumed) ──");
-        println!("Draft length γ:      {}", cfg.speculative.draft_len);
         println!(
-            "Acceptance rate α:   {:.2}",
-            cfg.speculative.acceptance_rate
+            "\n── Speculative Decoding ({}) ──",
+            if has_draft { "Assumed" } else { "Disabled" }
         );
-        println!("E[k] (Eq. 5):        {:.3}", ek);
-        println!("Speedup S (Eq. 6):   {:.3}×", speedup);
+        if has_draft {
+            println!("Draft length γ:      {}", cfg.speculative.draft_len);
+            println!(
+                "Acceptance rate α:   {:.2}",
+                cfg.speculative.acceptance_rate
+            );
+            println!("E[k] (Eq. 5):        {:.3}", ek);
+            println!("Speedup S (Eq. 6):   {:.3}×", speedup);
+        } else {
+            println!("No draft model configured (draft_params_b = 0).");
+        }
         println!("Effective decode:    {:.1} tok/s", decode_tps * speedup);
 
         report.effective_tps = decode_tps * speedup;

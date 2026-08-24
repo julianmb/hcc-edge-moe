@@ -53,7 +53,10 @@ impl KernelTuner {
     }
 
     fn uname_release() -> String {
-        fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default().trim().to_string()
+        fs::read_to_string("/proc/sys/kernel/osrelease")
+            .unwrap_or_default()
+            .trim()
+            .to_string()
     }
 
     fn module_loaded(name: &str) -> bool {
@@ -63,8 +66,10 @@ impl KernelTuner {
     }
 
     fn aspm_status() -> AspmStatus {
-        let policy = fs::read_to_string("/sys/module/pcie_aspm/parameters/policy").unwrap_or_default();
-        let active = fs::read_to_string("/sys/module/pcie_aspm/parameters/state").unwrap_or_default();
+        let policy =
+            fs::read_to_string("/sys/module/pcie_aspm/parameters/policy").unwrap_or_default();
+        let active =
+            fs::read_to_string("/sys/module/pcie_aspm/parameters/state").unwrap_or_default();
         if policy.contains("[default]") && !policy.contains("[performance]") {
             AspmStatus::Enabled(policy.trim().to_string(), active.trim().to_string())
         } else if policy.contains("[performance]") || policy.contains("off") {
@@ -102,9 +107,9 @@ impl KernelTuner {
     }
 
     fn numa_count() -> usize {
-        (0..).map_while(|i| {
-            fs::metadata(format!("/sys/devices/system/node/node{i}")).ok()
-        }).count()
+        (0..)
+            .map_while(|i| fs::metadata(format!("/sys/devices/system/node/node{i}")).ok())
+            .count()
     }
 }
 
@@ -132,16 +137,44 @@ impl std::fmt::Display for KernelTuneReport {
         writeln!(f, "  NUMA nodes:    {}", self.numa_nodes)?;
         writeln!(f)?;
         writeln!(f, "── Drivers ──")?;
-        writeln!(f, "  amdxdna (NPU):  {}", if self.amdxdna { ok } else { no })?;
+        writeln!(
+            f,
+            "  amdxdna (NPU):  {}",
+            if self.amdxdna { ok } else { no }
+        )?;
         writeln!(f, "  amdgpu (GPU):   {}", if self.amdgpu { ok } else { no })?;
-        writeln!(f, "  thunderbolt:   {}", if self.usb4_driver { ok } else { no })?;
+        writeln!(
+            f,
+            "  thunderbolt:   {}",
+            if self.usb4_driver { ok } else { no }
+        )?;
         writeln!(f)?;
         writeln!(f, "── USB4 Latency Tuning (paper §5.1.3) ──")?;
-        writeln!(f, "  ASPM:          {:<12}  (needs pcie_aspm=off: -71% P99 RTT)", self.aspm)?;
-        writeln!(f, "  TCP CC:        {:<12}  (needs bbr: avoids bufferbloat)", if self.bbr { ok } else { "cubic" })?;
-        writeln!(f, "  Busy poll:     {} µs           (needs 50: reduces IRQ latency)", self.busy_poll)?;
-        writeln!(f, "  Governor:      {:<12}  (needs performance: prevents USB4 controller sleep)", self.governor)?;
-        writeln!(f, "  EPP:           {:<12}  (needs performance: AMD P-State tuning)", self.epp)?;
+        writeln!(
+            f,
+            "  ASPM:          {:<12}  (needs pcie_aspm=off: -71% P99 RTT)",
+            self.aspm
+        )?;
+        writeln!(
+            f,
+            "  TCP CC:        {:<12}  (needs bbr: avoids bufferbloat)",
+            if self.bbr { ok } else { "cubic" }
+        )?;
+        writeln!(
+            f,
+            "  Busy poll:     {} µs           (needs 50: reduces IRQ latency)",
+            self.busy_poll
+        )?;
+        writeln!(
+            f,
+            "  Governor:      {:<12}  (needs performance: prevents USB4 controller sleep)",
+            self.governor
+        )?;
+        writeln!(
+            f,
+            "  EPP:           {:<12}  (needs performance: AMD P-State tuning)",
+            self.epp
+        )?;
         writeln!(f)?;
         writeln!(f, "── Measured Impact (paper Table 2) ──")?;
         writeln!(f, "  P99 RTT before tuning:  97 µs")?;

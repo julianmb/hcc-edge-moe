@@ -95,9 +95,10 @@ impl Usb4Transport {
         } else {
             cfg.base_latency_us + 35.0
         };
-        let bw_bytes_per_us = (cfg.throughput_gbps * 1e9 / 8.0) / 1e6;
+        let bw_bytes_per_us = ((cfg.throughput_gbps.max(0.001) * 1e9 / 8.0) / 1e6).max(1e-9);
         let serialization = payload_bytes as f64 / bw_bytes_per_us;
-        let packets = (payload_bytes + cfg.mtu - 1) / cfg.mtu;
+        let mtu = cfg.mtu.max(1);
+        let packets = payload_bytes.div_ceil(mtu);
         let tcp_overhead = packets as f64 * cfg.tcp_overhead_us;
         base_latency + serialization + tcp_overhead
     }
@@ -141,7 +142,9 @@ impl Usb4Transport {
 
         tracing::trace!(
             "USB4: node {} -> {}: {} bytes, comm={comm_time:.1}µs, RTT={rtt:.1}µs",
-            self.node_id, dst, data.len()
+            self.node_id,
+            dst,
+            data.len()
         );
 
         // Simulated DMA-BUF zero-copy descriptor

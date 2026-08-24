@@ -66,17 +66,25 @@ impl SessionManager {
 
     /// Check if there are pending sessions.
     pub fn has_pending(&self) -> bool {
-        self.sessions.iter().any(|s| s.state == SessionState::Pending)
+        self.sessions
+            .iter()
+            .any(|s| s.state == SessionState::Pending)
     }
 
     /// Check if any session is active.
     pub fn has_active(&self) -> bool {
-        self.sessions.iter().any(|s| s.state == SessionState::Active)
+        self.sessions
+            .iter()
+            .any(|s| s.state == SessionState::Active)
     }
 
     /// Check if all sessions completed.
     pub fn all_completed(&self) -> bool {
-        self.sessions.is_empty() || self.sessions.iter().all(|s| s.state == SessionState::Completed)
+        self.sessions.is_empty()
+            || self
+                .sessions
+                .iter()
+                .all(|s| s.state == SessionState::Completed)
     }
 
     /// Get next pending context — returns the actual prompt data.
@@ -86,10 +94,9 @@ impl SessionManager {
                 session.state = SessionState::Active;
                 // In production: load actual prompt from session's input buffer.
                 // For now, generate a realistic context: 512 tokens of hidden_size.
-                let ctx_size = 512 * (self.model_cfg.kv_lora_rank + self.model_cfg.qk_rope_head_dim) * 4; // FP32
-                let mut ctx = Vec::with_capacity(ctx_size);
-                ctx.resize(ctx_size, 0u8);
-                return ctx;
+                let ctx_size =
+                    512 * (self.model_cfg.kv_lora_rank + self.model_cfg.qk_rope_head_dim) * 4; // FP32
+                return vec![0u8; ctx_size];
             }
         }
         vec![]
@@ -140,9 +147,7 @@ mod tests {
     #[test]
     fn test_session_creation() {
         let cfg = HccConfig::default();
-        let mut mgr = SessionManager::new(
-            9, 200_000, 128.0, &cfg.model,
-        );
+        let mut mgr = SessionManager::new(9, 200_000, 128.0, &cfg.model);
         assert!(mgr.create_session(1, 1000).is_ok());
         assert_eq!(mgr.session_count(), 1);
         assert!(mgr.has_pending());

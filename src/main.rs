@@ -16,7 +16,11 @@ mod tuner;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "hcch", about = "Heterogeneous Compute Cascade - experimental MoE inference across ClawRig nodes", version = "0.2.0")]
+#[command(
+    name = "hcch",
+    about = "Heterogeneous Compute Cascade - experimental MoE inference across ClawRig nodes",
+    version = "0.2.0"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,

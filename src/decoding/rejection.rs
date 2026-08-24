@@ -5,9 +5,13 @@
 ///
 /// Note: SpeculativeEngine::accept_token inlines this logic directly.
 /// This module provides the standalone function for other consumers.
-pub fn reject(target_prob: f64, draft_prob: f64, uniform: f64) -> bool {
-    let ratio = target_prob / draft_prob.max(f64::EPSILON);
+pub fn accept_token(target_prob: f64, draft_prob: f64, uniform: f64) -> bool {
+    let ratio = target_prob / draft_prob.max(1e-30);
     ratio >= 1.0 || ratio > uniform
+}
+
+pub fn reject(target_prob: f64, draft_prob: f64, uniform: f64) -> bool {
+    accept_token(target_prob, draft_prob, uniform)
 }
 
 #[cfg(test)]

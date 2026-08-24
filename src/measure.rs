@@ -25,7 +25,7 @@ impl MeasureRunner {
             cfg.backend
                 .model_path
                 .split('/')
-                .last()
+                .next_back()
                 .unwrap_or(&cfg.backend.model_path)
         );
         println!("  Measure: {}", cfg.backend.measure_engine);

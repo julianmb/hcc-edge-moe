@@ -13,24 +13,30 @@ pub struct MixedPrecisionKVCache {
     key_blocks: Vec<Fp8Block>,
     value_blocks: Vec<turboquant::packed::PackedBlock>,
     dim: usize,
+    tq_config: Option<TurboQuantConfig>,
 }
 
 struct Fp8Block(Vec<u8>, f32);
 
 impl MixedPrecisionKVCache {
     pub fn new(dim: usize) -> Self {
+        let tq_config = TurboQuantConfig::new(3, TQ_DIM).ok();
         Self {
             key_blocks: Vec::new(),
             value_blocks: Vec::new(),
             dim,
+            tq_config,
         }
     }
 
     pub fn insert(&mut self, key: &[f32], value: &[f32]) {
         let k = Self::quantize_fp8(key);
-        let v = Self::quantize_lm3(value);
-        self.key_blocks.push(k);
-        self.value_blocks.push(v);
+        if let Some(ref config) = self.tq_config {
+            if let Some(v) = Self::quantize_lm3(value, config) {
+                self.key_blocks.push(k);
+                self.value_blocks.push(v);
+            }
+        }
     }
 
     pub fn read(&self, pos: usize) -> Option<(Vec<f32>, Vec<f32>)> {
@@ -49,9 +55,9 @@ impl MixedPrecisionKVCache {
     }
 
     pub fn dequantize_value(&self, pos: usize) -> Option<Vec<f32>> {
-        let config = TurboQuantConfig::new(3, TQ_DIM).ok()?;
+        let config = self.tq_config.as_ref()?;
         let mut raw =
-            turboquant::quantize::dequantize_vec(&config, self.value_blocks.get(pos)?).ok()?;
+            turboquant::quantize::dequantize_vec(config, self.value_blocks.get(pos)?).ok()?;
         raw.truncate(self.dim);
         Some(raw)
     }
@@ -75,13 +81,13 @@ impl MixedPrecisionKVCache {
         )
     }
 
-    fn quantize_lm3(data: &[f32]) -> turboquant::packed::PackedBlock {
-        let config = TurboQuantConfig::new(3, TQ_DIM).ok().unwrap();
+    fn quantize_lm3(
+        data: &[f32],
+        config: &TurboQuantConfig,
+    ) -> Option<turboquant::packed::PackedBlock> {
         let mut padded = data.to_vec();
         padded.resize(TQ_DIM, 0.0);
-        turboquant::quantize::quantize_vec(&config, &padded)
-            .ok()
-            .unwrap()
+        turboquant::quantize::quantize_vec(config, &padded).ok()
     }
 
     pub fn savings_ratio(&self) -> f64 {

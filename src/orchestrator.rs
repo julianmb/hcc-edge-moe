@@ -120,7 +120,10 @@ impl HccOrchestrator {
 
     /// Main generation loop.
     pub async fn run(&mut self) -> anyhow::Result<()> {
-        tracing::info!("HCC orchestrator running ({} nodes)", self.cfg.cluster.node_count);
+        tracing::info!(
+            "HCC orchestrator running ({} nodes)",
+            self.cfg.cluster.node_count
+        );
 
         loop {
             {
@@ -142,11 +145,7 @@ impl HccOrchestrator {
             let raw = self.session_manager.lock().await.next_context().await;
 
             let ttft_start = std::time::Instant::now();
-            self.transport
-                .lock()
-                .await
-                .send_to_node(1, &raw)
-                .await?;
+            self.transport.lock().await.send_to_node(1, &raw).await?;
             metrics::record_ttft(raw.len(), ttft_start.elapsed().as_secs_f64() * 1000.0);
         } else {
             // Node 2: iGPU-side. Receive context and run prefill.
@@ -197,9 +196,7 @@ impl HccOrchestrator {
                             .send_to_node(1, &compressed_clone)
                             .await
                         {
-                            tracing::warn!(
-                                "failed to send draft batch seq={seq_clone}: {err:#}"
-                            );
+                            tracing::warn!("failed to send draft batch seq={seq_clone}: {err:#}");
                         } else {
                             tracing::trace!("sent draft batch seq={seq_clone}");
                         }
@@ -233,24 +230,15 @@ impl HccOrchestrator {
 
     async fn drain_verifications(&mut self) {
         let mut transport = self.transport.lock().await;
-        loop {
-            match transport.try_recv_packet() {
-                Some(packet) => {
-                    if let Some(msg) = Usb4Transport::deserialize_msg(&packet.payload) {
-                        match msg {
-                            HccMessage::VerificationResult {
-                                accepted_prefix_len,
-                                ..
-                            } => {
-                                let accepted = accepted_prefix_len as usize;
-                                self.total_accepted += accepted;
-                                self.async_draft.verify(accepted);
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                None => break,
+        while let Some(packet) = transport.try_recv_packet() {
+            if let Some(HccMessage::VerificationResult {
+                accepted_prefix_len,
+                ..
+            }) = Usb4Transport::deserialize_msg(&packet.payload)
+            {
+                let accepted = accepted_prefix_len as usize;
+                self.total_accepted += accepted;
+                self.async_draft.verify(accepted);
             }
         }
     }

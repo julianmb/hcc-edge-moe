@@ -34,6 +34,10 @@ enum Commands {
         config: String,
         #[arg(long)]
         node_id: Option<usize>,
+        #[arg(long, default_value = "Hello from HCC")]
+        prompt: String,
+        #[arg(long, default_value = "16")]
+        max_tokens: usize,
     },
     /// Launch llama.cpp rpc-server
     RpcServer {
@@ -67,12 +71,18 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Run { config, node_id }) => {
+        Some(Commands::Run {
+            config,
+            node_id,
+            prompt,
+            max_tokens,
+        }) => {
             let mut cfg = config::load(config)?;
             if let Some(id) = node_id {
                 cfg.cluster.node_id = *id;
             }
-            let mut orch = orchestrator::HccOrchestrator::new(cfg).await?;
+            let mut orch =
+                orchestrator::HccOrchestrator::new(cfg, prompt.clone(), *max_tokens).await?;
             orch.run().await?;
         }
         Some(Commands::RpcServer { port, model }) => {

@@ -238,7 +238,7 @@ pub struct InterconnectConfig {
     pub link_count: usize,
     /// Per-direction throughput Gbps (paper: 22.5 single, 45 dual).
     pub throughput_gbps: f64,
-    /// Measured RTT µs (paper: 17 tuned).
+    /// Tuned RTT input used by the analytical model.
     pub rtt_us: f64,
     /// Base protocol latency µs.
     pub base_latency_us: f64,
@@ -248,6 +248,34 @@ pub struct InterconnectConfig {
     pub tcp_overhead_us: f64,
     /// Enable kernel-level optimizations (busy-poll, BBR, ASPM off).
     pub kernel_tune: bool,
+    /// Address bound by Node 1 on the thunderbolt-net interface.
+    #[serde(default = "default_interconnect_listen_addr")]
+    pub listen_addr: String,
+    /// Node 1 thunderbolt-net address dialed by Node 0.
+    #[serde(default = "default_interconnect_peer_addr")]
+    pub peer_addr: String,
+    /// Maximum time allowed for peer startup and handshake.
+    #[serde(default = "default_interconnect_connect_timeout_s")]
+    pub connect_timeout_s: u64,
+    /// Maximum idle time for one framed read or write.
+    #[serde(default = "default_interconnect_io_timeout_s")]
+    pub io_timeout_s: u64,
+}
+
+fn default_interconnect_listen_addr() -> String {
+    "127.0.0.1:50053".into()
+}
+
+fn default_interconnect_peer_addr() -> String {
+    "127.0.0.1:50053".into()
+}
+
+const fn default_interconnect_connect_timeout_s() -> u64 {
+    60
+}
+
+const fn default_interconnect_io_timeout_s() -> u64 {
+    30
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,14 +335,18 @@ impl Default for HccConfig {
             },
             interconnect: InterconnectConfig {
                 link_count: 2,
-                // Measured: dual USB4 bonded = 45 Gbps aggregate (paper §5.1)
+                // Analytical dual-link input used by the paper's roofline model.
                 throughput_gbps: 45.0,
-                // Measured: tuned USB4 P2P RTT = 17 µs avg (paper §5.1.2)
+                // Tuned RTT input awaiting reproduction on the target hardware pair.
                 rtt_us: 17.0,
                 base_latency_us: 14.0,
                 mtu: 9000,
                 tcp_overhead_us: 1.2,
                 kernel_tune: true,
+                listen_addr: default_interconnect_listen_addr(),
+                peer_addr: default_interconnect_peer_addr(),
+                connect_timeout_s: default_interconnect_connect_timeout_s(),
+                io_timeout_s: default_interconnect_io_timeout_s(),
             },
             kv_cache: KvCacheConfig {
                 bits: 3,
@@ -328,7 +360,7 @@ impl Default for HccConfig {
                 static_batch: 1,
             },
             backend: BackendConfig {
-                inference_engine: "llamacpp-rpc".into(),
+                inference_engine: "simulated".into(),
                 server_bin: default_server_bin(),
                 measure_engine: default_measure_engine(),
                 cli_bin: default_cli_bin(),
@@ -504,6 +536,22 @@ impl HccConfig {
         assert!(self.backend.parallel >= 1, "backend.parallel must be >= 1");
         assert!(self.interconnect.mtu > 0, "interconnect.mtu must be > 0");
         assert!(
+            !self.interconnect.listen_addr.is_empty(),
+            "interconnect.listen_addr must not be empty"
+        );
+        assert!(
+            !self.interconnect.peer_addr.is_empty(),
+            "interconnect.peer_addr must not be empty"
+        );
+        assert!(
+            self.interconnect.connect_timeout_s > 0,
+            "interconnect.connect_timeout_s must be > 0"
+        );
+        assert!(
+            self.interconnect.io_timeout_s > 0,
+            "interconnect.io_timeout_s must be > 0"
+        );
+        assert!(
             self.interconnect.rtt_us.is_finite() && self.interconnect.rtt_us >= 0.0,
             "interconnect.rtt_us must be finite and >= 0"
         );
@@ -522,7 +570,7 @@ impl HccConfig {
             self.model.top_k,
             self.model.num_experts
         );
-        // Measured roofline: 212 GB/s / 19.1 GB ≈ 11.1 tok/s per node
+        // Roofline sanity check: 212 GB/s / 19.1 GB ≈ 11.1 tok/s per node.
         let theoretical_tps = self.cluster.memory_bw_gbs / self.model.weight_read_gb();
         assert!(
             theoretical_tps > 5.0 && theoretical_tps.is_finite(),
@@ -535,18 +583,18 @@ impl HccConfig {
     /// The paper's speculative amortization is designed for exactly two nodes
     /// (draft on Node 0's NPU, verify on Node 1's iGPU). Projection and
     /// measurement commands may run single-node configs; `hcch run` may not.
-    pub fn validate_hcc_topology(&self) {
-        assert!(
-            self.cluster.node_count == 2,
-            "HCC orchestrator requires exactly 2 nodes (paper topology); got {}. \
-             Use benchmark/measure for single-node projection.",
-            self.cluster.node_count
-        );
-        assert!(
-            self.cluster.node_id < 2,
-            "node_id {} out of range [0, 2)",
-            self.cluster.node_id
-        );
+    pub fn validate_hcc_topology(&self) -> anyhow::Result<()> {
+        if self.cluster.node_count != 2 {
+            anyhow::bail!(
+                "HCC orchestrator requires exactly 2 nodes (paper topology); got {}. \
+                 Use benchmark/measure for single-node projection.",
+                self.cluster.node_count
+            );
+        }
+        if self.cluster.node_id >= 2 {
+            anyhow::bail!("node_id {} out of range [0, 2)", self.cluster.node_id);
+        }
+        Ok(())
     }
 }
 

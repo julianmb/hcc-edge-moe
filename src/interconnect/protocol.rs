@@ -1,13 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-/// HCC wire protocol messages over USB4.
-///
-/// Defines the message types exchanged between Node 1 (NPU draft + iGPU layers 0–38)
-/// and Node 2 (iGPU layers 39–77).
+/// Typed messages exchanged by the two-node HCC protocol simulator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum HccMessage {
-    /// Prefill compressed context from Node 1 NPU to Node 2.
-    /// §6.2: compressed activation payload after NPU summarization.
+    /// Opaque prefill payload; the simulator currently carries prompt bytes.
     PrefillPayload {
         tokens: Vec<u32>,
         compressed_activations: Vec<u8>,
@@ -18,22 +14,23 @@ pub enum HccMessage {
     /// §7, Algorithm 1 line 3: "Pass sequence through M on iGPU cluster
     /// as a single parallel batch."
     DraftBatch {
+        seq: u64,
         tokens: Vec<u32>,
-        hidden_states: Vec<f32>,
+        probabilities: Vec<f32>,
         draft_len: u8,
     },
 
     /// Verification result from Node 2 iGPU back to Node 1.
     /// Accepted token indices and logits for rejection sampling.
     VerificationResult {
+        seq: u64,
         accepted_prefix_len: u8,
+        accepted_tokens: Vec<u32>,
         logits: Vec<f32>,
         probabilities: Vec<f32>,
     },
 
-    /// KV cache sync message for context update.
-    /// §7: "updating the NPU's context" — return payload is "mere bytes"
-    /// over the 17 µs link, <0.02% overhead.
+    /// Reserved message shape for future accepted-context synchronization.
     ContextSync {
         accepted_tokens: Vec<u32>,
         kv_state_delta: Vec<u8>,
@@ -86,14 +83,20 @@ impl HccMessage {
                 compressed_activations,
                 ..
             } => 8usize.saturating_add(compressed_activations.len()),
-            Self::DraftBatch { hidden_states, .. } => {
-                8usize.saturating_add(hidden_states.len().saturating_mul(4))
-            }
+            Self::DraftBatch {
+                tokens,
+                probabilities,
+                ..
+            } => 8usize
+                .saturating_add(tokens.len().saturating_mul(4))
+                .saturating_add(probabilities.len().saturating_mul(4)),
             Self::VerificationResult {
+                accepted_tokens,
                 logits,
                 probabilities,
                 ..
             } => 1usize
+                .saturating_add(accepted_tokens.len().saturating_mul(4))
                 .saturating_add(logits.len().saturating_mul(4))
                 .saturating_add(probabilities.len().saturating_mul(4)),
             Self::ContextSync { kv_state_delta, .. } => 8usize.saturating_add(kv_state_delta.len()),
@@ -142,8 +145,9 @@ mod tests {
     #[test]
     fn test_message_roundtrip() {
         let msg = HccMessage::DraftBatch {
+            seq: 7,
             tokens: vec![42, 99, 101],
-            hidden_states: vec![0.5f32; 12288],
+            probabilities: vec![0.5; 3],
             draft_len: 3,
         };
         let encoded = bincode::serialize(&msg).unwrap();

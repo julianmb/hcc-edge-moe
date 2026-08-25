@@ -57,6 +57,12 @@ impl SessionManager {
         if self.sessions.len() >= self.max_sessions {
             anyhow::bail!("max sessions ({}) reached", self.max_sessions);
         }
+        if max_tokens == 0 || max_tokens > self.max_context {
+            anyhow::bail!(
+                "session max_tokens must be in 1..={}, got {max_tokens}",
+                self.max_context
+            );
+        }
         self.sessions.push(Session {
             id,
             state: SessionState::Pending,
@@ -81,6 +87,15 @@ impl SessionManager {
             .any(|s| s.state == SessionState::Active)
     }
 
+    pub fn activate_next(&mut self) -> Option<u64> {
+        let session = self
+            .sessions
+            .iter_mut()
+            .find(|session| session.state == SessionState::Pending)?;
+        session.state = SessionState::Active;
+        Some(session.id)
+    }
+
     /// Check if all sessions completed.
     pub fn all_completed(&self) -> bool {
         self.sessions.is_empty()
@@ -88,21 +103,6 @@ impl SessionManager {
                 .sessions
                 .iter()
                 .all(|s| s.state == SessionState::Completed)
-    }
-
-    /// Get next pending context — returns the actual prompt data.
-    pub async fn next_context(&mut self) -> Vec<u8> {
-        for session in &mut self.sessions {
-            if session.state == SessionState::Pending {
-                session.state = SessionState::Active;
-                // In production: load actual prompt from session's input buffer.
-                // For now, generate a realistic context: 512 tokens of hidden_size.
-                let ctx_size =
-                    512 * (self.model_cfg.kv_lora_rank + self.model_cfg.qk_rope_head_dim) * 4; // FP32
-                return vec![0u8; ctx_size];
-            }
-        }
-        vec![]
     }
 
     /// Update session token count.

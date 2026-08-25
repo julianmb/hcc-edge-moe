@@ -1,7 +1,4 @@
-/// Asynchronous speculative decoding pipeline.
-///
-/// Paper Section 7, Algorithm 1: The NPU generates draft tokens continuously
-/// while verification is in-flight over USB4, eliminating stop-and-wait bubbles.
+/// Draft-batch encoding and bounded in-flight bookkeeping.
 use crate::decoding::speculative::DraftToken;
 use std::collections::VecDeque;
 
@@ -22,10 +19,7 @@ impl PicoSpecRejection {
     }
 }
 
-/// Asynchronous draft pipeline stage.
-///
-/// Runs on Node 1 (NPU). Generates draft tokens continuously while
-/// verification is in-flight, eliminating stop-and-wait bubbles.
+/// Bounded queue for submitted draft batches awaiting verification.
 pub struct AsyncDraftStage {
     pending: VecDeque<DraftBatch>,
     max_inflight: usize,

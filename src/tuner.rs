@@ -1,16 +1,4 @@
-/// Kernel tuner: detect and apply USB4/ASPM/BBR optimizations.
-///
-/// From paper §5.1.3: kernel-level optimizations that reduce P99 RTT
-/// from 97 µs to 27.85 µs (71% reduction in tail jitter):
-///   1. AMD P-State EPP scheduler
-///   2. PCIe ASPM disablement (pcie_aspm=off)
-///   3. BBR congestion control
-///   4. Busy-poll sockets (SO_BUSY_POLL)
-///
-/// Running on: Ubuntu 24.04.4 LTS, kernel 6.17.0-1020-oem (OEM for Strix Halo)
-///   - amdxdna.ko: built-in, DMA_BUF import support
-///   - ASPM: needs explicit disable (pcie_aspm=off kernel param)
-///   - BBR: available in kernel, needs sysctl enable
+/// Inspect USB4-related kernel settings and print candidate tuning commands.
 use std::fs;
 
 pub struct KernelTuner;
@@ -152,7 +140,7 @@ impl std::fmt::Display for KernelTuneReport {
         writeln!(f, "── USB4 Latency Tuning (paper §5.1.3) ──")?;
         writeln!(
             f,
-            "  ASPM:          {:<12}  (needs pcie_aspm=off: -71% P99 RTT)",
+            "  ASPM:          {:<12}  (paper model assumes pcie_aspm=off)",
             self.aspm
         )?;
         writeln!(
@@ -176,10 +164,10 @@ impl std::fmt::Display for KernelTuneReport {
             self.epp
         )?;
         writeln!(f)?;
-        writeln!(f, "── Measured Impact (paper Table 2) ──")?;
-        writeln!(f, "  P99 RTT before tuning:  97 µs")?;
-        writeln!(f, "  P99 RTT after tuning:   27.85 µs (71% reduction)")?;
-        writeln!(f, "  Min RTT after tuning:   14.13 µs")?;
+        writeln!(f, "── Paper Model Inputs (validate locally) ──")?;
+        writeln!(f, "  P99 RTT baseline input: 97 µs")?;
+        writeln!(f, "  P99 RTT tuned input:    27.85 µs")?;
+        writeln!(f, "  Minimum RTT input:      14.13 µs")?;
         Ok(())
     }
 }

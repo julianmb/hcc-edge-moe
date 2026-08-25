@@ -2,15 +2,7 @@ use memmap2::MmapMut;
 use std::fs::File;
 use std::os::unix::io::{FromRawFd, IntoRawFd, RawFd};
 
-/// DMA-BUF descriptor — zero-copy memory sharing between amdxdna (NPU)
-/// and amdgpu (iGPU) drivers, and across USB4.
-///
-/// From §9:
-/// "XRT allocates a unified buffer and exports it as a file descriptor;
-///  ROCm imports this descriptor directly into the iGPU's address space."
-///
-/// "utilizing IOVA mapping via IOMMU to treat LLM network payloads
-///  as zero-copy DMA-BUF descriptors."
+/// Host-memory `memfd`/`mmap` scaffold for a future XRT/ROCm DMA-BUF bridge.
 pub struct DmaBufDescriptor {
     /// Memory-mapped buffer.
     mmap: MmapMut,

@@ -102,9 +102,9 @@
 ]
 \textbf{Abstract.} The democratization of frontier artificial intelligence is fundamentally blocked by the capital expenditure (CAPEX) and thermodynamic footprint required to host models exceeding 100 billion parameters. While a dual-node 16-Core Ryzen APU cluster provides a 256 GB unified memory pool---structurally capable of holding a 744B-parameter GLM-5.1 MoE (380B after REAP pruning)---traditional distributed execution frameworks over consumer USB4 bridges suffer from catastrophic network pipeline bubbles driven by TCP/IP OS kernel latency.
 
-We introduce the \textit{Heterogeneous Compute Cascade} (HCC), a software architecture designed to convert this hardware limitation into a strategic advantage. Rather than treating heterogeneous IP blocks (CPU, iGPU, NPU) as a uniform compute pool, HCC enforces strict silicon-to-task affinity. The architecture utilizes the NPU's spatial dataflow design and native Block FP16 precision to independently process massive context prefill phases locally on Node 1, compressing the activation payload transmitted across the USB4 bridge by over 80\%. During generation, the NPU assumes a draft-model role, hiding the unoptimized $\sim$0.5 ms network latency floor (reduced to $\sim$17 $\mu$s under kernel-tuned operation; Section 5.1) behind a speculative decoding loop that acts as a temporal latency shield.
+We introduce the \textit{Heterogeneous Compute Cascade} (HCC), a software architecture designed to convert this hardware limitation into a strategic advantage. Rather than treating heterogeneous IP blocks (CPU, iGPU, NPU) as a uniform compute pool, HCC enforces strict silicon-to-task affinity. The proposed architecture assigns context compression and draft generation to the NPU, with a projected activation reduction above 80\% and speculative latency hiding across USB4. These accelerator paths are design targets: the current runtime validates a stop-and-wait typed protocol in simulation, while physical NPU compression and overlap remain unimplemented.
 
-Furthermore, to ensure the KV cache does not exhaust unified memory during long-context execution, the architecture mandates 3-bit TurboQuant KV compression via Walsh-Hadamard rotations. The proposed software stack utilizes ONNX Runtime with kernel-level DMA-BUF zero-copy descriptors to bridge the iGPU (via MIGraphX) and the NPU (via Vitis AI). Our analytical model projects a $\sim$3$\times$ improvement in Time-to-First-Token (TTFT) and a 2.35$\times$ multiplier on decode throughput relative to na\"ive RPC bridging. Theoretical analysis indicates a hardware cost of \$20.31 per GB of addressable memory---representing a projected 92\% cost reduction and 96\% power reduction versus a turnkey DGX A100 deployment. This work demonstrates, through formal mathematical analysis, that intelligent orchestration rather than raw interconnect bandwidth is the key architectural principle for enabling massive-scale AI inference at the edge.
+Furthermore, to ensure the KV cache does not exhaust unified memory during long-context execution, the architecture proposes 3-bit TurboQuant KV compression via Walsh-Hadamard rotations. The target software stack specifies kernel-level DMA-BUF descriptors to bridge the iGPU (via MIGraphX) and NPU (via Vitis AI); the present prototype uses framed TCP plus a host-memory \texttt{memfd}/\texttt{mmap} scaffold and does not yet implement cross-driver zero-copy. Our analytical model projects a $\sim$3$\times$ improvement in Time-to-First-Token (TTFT) and a 2.35$\times$ multiplier on decode throughput relative to na\"ive RPC bridging. Theoretical analysis indicates a hardware cost of \$20.31 per GB of addressable memory---representing a projected 92\% cost reduction and 96\% power reduction versus a turnkey DGX A100 deployment. This work demonstrates, through formal mathematical analysis, that intelligent orchestration rather than raw interconnect bandwidth is the key architectural principle for enabling massive-scale AI inference at the edge.
 \end{tcolorbox}
 \end{center}
 
@@ -151,7 +151,7 @@ Furthermore, XDNA 2 supports \textbf{Block FP16 (BFP16)}. Standard FP16 retains 
 \section{Background and Formalization of MoE Architectures}
 
 \subsection{Distributed Edge Inference and Interconnect Topologies}
-Apple Silicon clusters (e.g., Mac Studio arrays) rely on the proprietary \textit{UltraFusion} interposer, delivering 2.5 TB/s of bidirectional bandwidth \cite{apple_unified}. However, these systems scale poorly beyond a single physical node without exorbitant cost. Conversely, clustering consumer x86 hardware relies on external peripheral bridges such as USB4. While USB4 advertises 40 Gbps ($\sim$5 GB/s) of bandwidth, implementations of pipeline parallelism over the TCP/IP suite exhibit severe per-layer software latency ($\sim$0.5--1.0 ms) due to PCIe tunneling encapsulation and Linux OS network stack overhead \cite{llama_rpc} (see Section 5.1 for empirical measurements demonstrating 17 $\mu$s with kernel tuning).
+Apple Silicon clusters (e.g., Mac Studio arrays) rely on the proprietary \textit{UltraFusion} interposer, delivering 2.5 TB/s of bidirectional bandwidth \cite{apple_unified}. However, these systems scale poorly beyond a single physical node without exorbitant cost. Conversely, clustering consumer x86 hardware relies on external peripheral bridges such as USB4. While USB4 advertises 40 Gbps ($\sim$5 GB/s) of bandwidth, pipeline-parallel TCP execution can incur substantial software latency from RPC serialization and network-stack traversal \cite{llama_rpc}. Section 5.1 therefore treats 17 $\mu$s as a tuned model input that must be reproduced on the target pair.
 
 \subsection{Mixture of Experts and Router-Weighted Expert Activation Pruning}
 Mixture of Experts (MoE) architectures decouple the total parameter count of a network from its active computational cost. For a given input token $x$, the output $y$ is computed as the weighted sum of the selected experts:
@@ -228,16 +228,16 @@ For a model with hidden size $H = 6144$ utilizing FP16 precision:
 \label{fig:pipeline_bubble}
 \end{figure}
 
-\subsection{Empirical USB4 Interconnect Characterization}
+\subsection{USB4 Interconnect Reference Parameters}
 
-To ground the theoretical analysis above in measured hardware behavior, we conduct a systematic benchmarking campaign of dual USB4 point-to-point (P2P) links as a high-speed interconnect between two 16-Core Ryzen APU unified memory nodes. Unlike conventional approaches relying on dedicated PCIe-attached 10 Gigabit Ethernet NICs, this configuration uses a \textbf{zero-added-hardware} interconnect strategy: native USB4 host-to-host networking tunneled over the Thunderbolt protocol stack under Linux kernel 6.8+.
+To ground the analytical model, we use reference parameters for dual USB4 point-to-point (P2P) links between two 16-Core Ryzen APU unified-memory nodes. The values in this section are model inputs retained for reproducibility; they have not been reproduced by the current repository's measurement harness. The intended physical configuration uses native USB4 host-to-host networking tunneled over the Linux \texttt{thunderbolt-net} stack.
 
-\subsubsection{Measured Throughput}
-We benchmark single and dual USB4 link configurations in P2P topology---without any intermediate switching fabric:
+\subsubsection{Throughput Assumptions}
+The roofline model uses the following single- and dual-link assumptions:
 
 \begin{table}[ht!]
 \centering
-\caption{Measured USB4 P2P interconnect throughput (empirical).}
+\caption{USB4 P2P throughput parameters used by the analytical model (not reproduced by the current harness).}
 \vspace{0.2cm}
 \begin{tabular}{l r r}
 \toprule
@@ -253,12 +253,12 @@ Dual bonded USB4 links & 22.5 Gbps & $\sim$\textbf{45 Gbps} \\
 
 \noindent Dual bonded USB4 achieves approximately \textbf{4.5$\times$} the throughput of a single 10 Gigabit Ethernet link, without requiring any PCIe expansion slots or dedicated network hardware.
 
-\subsubsection{Measured Latency}
-Round-trip latency measurements under optimized kernel configuration reveal substantially lower latency than previously assumed in the literature:
+\subsubsection{Latency Assumptions}
+The latency model uses the following tuned reference values:
 
 \begin{table}[ht!]
 \centering
-\caption{Measured USB4 P2P round-trip latency (empirical).}
+\caption{USB4 P2P round-trip latency parameters used by the analytical model (not reproduced by the current harness).}
 \vspace{0.2cm}
 \begin{tabular}{l r r r}
 \toprule
@@ -273,10 +273,10 @@ P99 RTT (tuned) & \textbf{27.85 $\mu$s} & --- & 71\% reduction \\
 \label{tab:usb4_latency}
 \end{table}
 
-\noindent These measurements demonstrate that the raw USB4 network RTT is \textbf{14--28 $\mu$s}---approximately 30$\times$ lower than the $\sim$0.5 ms per-crossing latency observed in unoptimized \texttt{llama.cpp} RPC deployments. The difference is attributable to application-level RPC serialization, OS network stack traversal, and socket buffer management---overhead that HCC's zero-copy DMA-BUF architecture is specifically designed to minimize.
+\noindent Under these assumptions, raw USB4 network RTT is \textbf{14--28 $\mu$s}, approximately 30$\times$ below the $\sim$0.5 ms per-crossing latency used for an unoptimized \texttt{llama.cpp} RPC comparison. Physical measurements on the target pair remain a validation requirement.
 
 \subsubsection{Kernel-Level Optimizations}
-The P99 latency reduction from 97 $\mu$s to 27.85 $\mu$s (71\% reduction in tail jitter) is achieved leveraging the native Ubuntu 24.04 LTS stack (Linux kernel 6.8). Kernel 6.8 introduces refactored \texttt{thunderbolt-net} ring buffer management, which substantially reduces PCIe tunneling encapsulation overhead. The key optimizations are:
+The analytical model assumes a P99 latency reduction from 97 $\mu$s to 27.85 $\mu$s after tuning. The following settings are candidates for physical validation on the target pair; the current repository does not establish their individual or combined effect:
 \begin{itemize}[nosep]
     \item \textbf{AMD P-State EPP scheduler:} Replacing legacy C-state disabling with the modern \texttt{amd-pstate} Energy Performance Preference (EPP) scheduler ensures the USB4 controller and NPU tiles remain in a low-latency ready state without compromising the SoC's thermodynamic efficiency---a critical advantage over brute-force \texttt{max\_cstate=1} approaches that waste power.
     \item \textbf{PCIe ASPM disablement:} Disabling Active State Power Management (\texttt{pcie\_aspm=off}) prevents link retraining delays on the Thunderbolt controller.
@@ -285,7 +285,7 @@ The P99 latency reduction from 97 $\mu$s to 27.85 $\mu$s (71\% reduction in tail
 \end{itemize}
 
 \subsubsection{Implications for LLM Inference}
-Critically, actual \texttt{llama.cpp} RPC transport utilization during inference measures only $\sim$\textbf{20 MB/s}---less than 0.4\% of the available 5.6 GB/s dual-link capacity. This confirms that the interconnect bottleneck for distributed LLM inference is \textit{latency-bound, not bandwidth-bound}: each RPC call transfers only 12 KB (one token's activation vector at $H=6144$), and the per-call overhead dominates. This finding directly motivates HCC's speculative decoding approach, which amortizes this per-call overhead over multiple accepted tokens.
+For the representative $H=6144$ activation exchange analyzed here, each token transfers approximately 12 KB in FP16. At the assumed link capacity, serialization time is small relative to per-call software latency; this motivates HCC's speculative decoding approach, which amortizes crossings over multiple accepted tokens. End-to-end traffic must still be measured on the final sharded runtime.
 
 \subsection{The Single-Node Memory Contention Failure Mode}
 
@@ -370,7 +370,7 @@ A naive alternative would be to execute the draft model on Node~1's iGPU. Howeve
 
 \noindent\textit{This section describes a planned enhancement not yet implemented in the current codebase.}
 
-The NPU is designed to execute deterministic pre-filtering and extractive summarization. Application-layer frameworks such as Cascaded Signal Refinement (CSR) \cite{csr} demonstrate that enterprise compliance workloads can be deterministically reduced by over 96\% before any LLM token is generated. By mapping CSR's Layer~1 deterministic routing and Layer~2 small-model screening to the XDNA~2 NPU's spatial dataflow array---which processes high-arithmetic-intensity operations natively at $<$5W---the activation payload transmitted across the USB4 bridge to the main MoE on the iGPU is projected to be reduced by $>$80\%. Combined with the empirically measured dual-USB4 throughput of 45 Gbps (Section 5.1), this projects a dramatically faster TTFT for large-scale RAG and compliance workloads.
+The NPU is designed to execute deterministic pre-filtering and extractive summarization. Application-layer frameworks such as Cascaded Signal Refinement (CSR) \cite{csr} demonstrate that enterprise compliance workloads can be deterministically reduced by over 96\% before any LLM token is generated. By mapping CSR's Layer~1 deterministic routing and Layer~2 small-model screening to the XDNA~2 NPU's spatial dataflow array, the activation payload transmitted across the USB4 bridge to the main MoE on the iGPU is projected to be reduced by $>$80\%. Combined with the 45 Gbps dual-USB4 model input from Section 5.1, this motivates a projected TTFT reduction for large-scale RAG and compliance workloads.
 
 \begin{figure}[ht!]
 \centering
@@ -507,18 +507,18 @@ This yields an \textbf{unbiased} inner product estimator at total bit-width $b$,
 \legend{MLA FP16, MLA + TurboQuant (3-bit), Standard MHA FP16 (reference)}
 \end{axis}
 \end{tikzpicture}
-\caption{Per-node KV cache scaling with MLA. GLM-5.1's Multi-head Latent Attention compresses the KV cache by $\sim$21$\times$ versus standard MHA (gray dotted), fitting 200K tokens in FP16 within $\sim$9 GB per node. TurboQuant 3-bit further reduces this to $\sim$1.7 GB, enabling concurrent multi-session serving.}
+\caption{Idealized per-node KV cache scaling with MLA. GLM-5.1's Multi-head Latent Attention compresses the KV cache by $\sim$21$\times$ versus standard MHA (gray dotted). The current \texttt{turboquant-rs} integration pads $d_{kv}=576$ to 1024, so its allocated value buffers exceed the idealized 3-bit curve by 77.8\%; a non-power-of-two kernel is required to attain the plotted footprint.}
 \label{fig:kvcache}
 \end{figure}
 
-\section{The Heterogeneous Software Stack (Zero-Copy Interoperability)}
+\section{Target Heterogeneous Software Stack}
 
-The implementation leverages the \textbf{ROCm 7.2.1} ecosystem on Ubuntu 24.04.4 (kernel 6.8 GA) to achieve true heterogeneous zero-copy interoperability. Unlike legacy ROCm 6.x stacks that required complex \texttt{hipHostMalloc} bounce-buffering between discrete driver domains, ROCm 7.2.1 natively exposes the APU's Unified Memory Architecture (UMA), enabling direct memory sharing between the \texttt{amdxdna} (NPU) and \texttt{amdgpu} (iGPU) kernel drivers.
+The target design uses the \textbf{ROCm 7.2.x} ecosystem on Ubuntu 24.04 to pursue heterogeneous zero-copy interoperability. The current repository does not yet bind XRT allocation, DMA-BUF import, \texttt{dma-fence}, or HIP event synchronization; it models this boundary with host-memory \texttt{memfd}/\texttt{mmap} buffers.
 
 \begin{enumerate}
-    \item \textbf{Execution Providers:} The GLM-5.1-REAP-50 MoE is compiled for the iGPU via \texttt{MIGraphX} (ROCm 7.2.1), which provides matured MoE routing kernels with improved layout propagation in pointwise fusion for broadcasted inputs. The 8B draft model on the NPU is compiled via \texttt{Vitis AI (VOE)} in Block FP16 precision.
-    \item \textbf{Cross-Driver DMA-BUF Sync:} We utilize kernel 6.8's improved \texttt{dma-fence} signaling to safely share memory descriptors between the \texttt{amdxdna} and \texttt{amdgpu} drivers without CPU-side blocking. XRT allocates a unified buffer and exports it as a file descriptor; ROCm imports this descriptor directly into the iGPU's address space. ROCm 7.2.1's HIP runtime includes AQL batch-dispatch stability improvements relevant to the asynchronous speculative loop. This architecture directly implements the user-space I/O paradigms detailed at the Linux Plumbers Conference (LPC 2025) NPU subsystem track, utilizing IOVA mapping via IOMMU to treat LLM network payloads as zero-copy DMA-BUF descriptors.
-    \item \textbf{MIGraphX MoE + HIP Event Flags:} The HIP execution graph natively waits on XRT hardware event flags, allowing the NPU draft model to asynchronously stream its $\gamma$ speculative tokens directly into the iGPU's execution pipeline---no CPU-side polling or synchronization barriers required.
+    \item \textbf{Execution Providers (planned):} The intended deployment compiles GLM-5.1-REAP-50 shards for the iGPU via \texttt{MIGraphX} and an aligned 8B draft model for XDNA~2 via \texttt{Vitis AI (VOE)}. The repository currently validates local llama.cpp execution and a simulated distributed protocol; it does not contain compiled GLM-5.1 shards.
+    \item \textbf{Cross-Driver DMA-BUF Sync (planned):} The design calls for XRT to export a unified buffer and ROCm to import that descriptor into the iGPU address space with explicit fence synchronization. The current \texttt{DmaBufDescriptor} is a CPU-visible host-memory scaffold, not this driver integration.
+    \item \textbf{MIGraphX MoE + HIP Event Flags (planned):} Direct event-driven NPU-to-iGPU dispatch remains future work. The implemented orchestration path uses framed TCP messages and CPU-side async control.
     \item \textbf{Kernel 6.8 GFXOFF:} Linux 6.8 enables AMD GFXOFF power gating for RDNA 3.5 under ROCm compute workloads. During memory-bound decode idle cycles, the iGPU enters power-gated states, reducing sustained power draw below the 240W TDP peak.
 \end{enumerate}
 
@@ -557,7 +557,7 @@ With HCC speculative amortization ($\alpha = 0.7$, $\gamma = 5$), the projected 
     T_{\text{HCC}} = 11.1 \times \frac{1 - 0.7^{6}}{(1-0.7)(1 + 5 \times 0.05)} = 11.1 \times 2.35 \approx 26.1 \text{ T/s}
 \end{equation}
 
-\noindent This throughput is enabled by the \textbf{synergy of three architectural components}: (1) the XDNA 2 NPU running the draft model at $<$5W marginal power, (2) the RDNA 3.5 iGPU executing the main MoE at 212 GB/s memory bandwidth, and (3) the dual USB4 interconnect providing 45 Gbps / 17 $\mu$s RTT (empirically measured, Section 5.1). No single component is sufficient---removing any one collapses the advantage.
+\noindent This projected throughput depends jointly on three assumed components: (1) an XDNA 2 NPU draft model, (2) RDNA 3.5 iGPU target execution at the configured 212 GB/s memory-bandwidth input, and (3) a dual-USB4 link modeled at 45 Gbps / 17 $\mu$s RTT. None has yet been validated together in an end-to-end GLM-5.1 run.
 
 Over a projected 3-year lifecycle (24/7, \$0.15/kWh), using DGX A100 at \$100K midpoint and DGX H100 at \$250K midpoint:
 
@@ -636,9 +636,7 @@ Batch-2 & 2-node + \texttt{--parallel 2} & 36$^\dagger$ & \$1.81 & \$5,200 & 2 c
 
 \noindent At the multi-session tier, HCC projects \textbf{\$0.62/M tokens}---\textbf{4.3$\times$ cheaper} than the DGX A100 at full vLLM utilization (\$2.66/M) and \textbf{5.0$\times$ cheaper} than the DGX H100 (\$3.07/M), on \$5,200 of hardware drawing 240W from a wall outlet. This is the complete inversion of the data center cost advantage.
 
-\textbf{Model Agility and High-Concurrency Profiles.} While this paper analyzes the 370B-class GLM-5.1-REAP model to demonstrate HCC's ability to host massive parameter counts, the dual-node architecture is equally highly performant on natively compact frontier MoEs. For example, the recently released MiniMax-M2.5 (230B total, 10B active parameters) occupies approximately 110 GB at UD-Q3\_K\_M. This leaves over 130 GB of unified memory available across the cluster exclusively for KV caching. Because MiniMax requires reading only $\sim$4.8 GB of weights per token, the iGPU natively decodes at $>$40 T/s without speculative assistance. In this deployment profile, the NPU is entirely repurposed from speculative drafting to continuous background context compression and RAG ingestion (Section 6.2), maximizing the cluster's concurrent serving density for API workloads.
-
-\textbf{The NPU+GPU+Dual-USB4 triad enables all tiers.} Without HCC, the dual APU cluster projects \$5.86/M tokens in single-stream---more than double the DGX A100 at scale, making edge inference economically unviable. HCC speculative amortization via the XDNA 2 NPU over the empirically validated 17 $\mu$s dual-USB4 link transforms this into \$2.49/M (single-stream) to \$0.62/M (multi-session)---the most cost-effective platform for inference at any team size.
+\textbf{Projected NPU+GPU+Dual-USB4 tiers.} Under the stated assumptions, the dual APU cluster projects \$5.86/M tokens without speculative amortization and \$2.49/M (single-stream) to \$0.62/M (multi-session) with it. These figures are sensitivity-model outputs, not evidence that the platform is the most cost-effective option for a deployed workload.
 
 \section{Experimental Design and Validation Framework}
 \label{sec:validation}
@@ -685,15 +683,15 @@ This paper presents an \textbf{architectural blueprint and mathematical validati
 
 \textbf{Analytical foundation.} All performance projections (3$\times$ TTFT, 2.35$\times$ decode throughput, 92\% TCO reduction) are derived from roofline models, theoretical bounds, and published hardware specifications. These represent theoretical upper bounds under ideal conditions. Empirical validation following the protocol in Section~\ref{sec:validation} is part of ongoing proprietary development.
 
-\textbf{NPU software maturity and performance bounding.} Earlier assessments of XDNA 2 transformer inference cited severe CPU-dispatch bottlenecks. However, as of late Q1 2026, the open-source ecosystem has decisively resolved these limitations. Frameworks such as FastFlowLM \cite{fastflowlm} now natively support 20B-parameter LLMs running entirely on the XDNA 2 NPU under Linux at 18 tokens/second. Furthermore, community implementations leveraging custom ROCm/XRT backends to bypass CPU dispatch have demonstrated 8B-parameter dense models decoding at 43.7 tokens/second on the NPU at 41.5W \cite{dragonnpu}. The sd.npu framework \cite{sdnpu} has demonstrated NPU-based speculative decoding with retrieval-based drafting and parallel verification in a peer-reviewed implementation. AMD's own Lemonade Server officially ships a hybrid NPU+iGPU execution mode---the same topology HCC proposes. This empirical evidence proves that an 8B draft model possesses the raw hardware throughput to easily outpace the iGPU main model's 11.1 T/s decode rate, mathematically validating the feasibility of the speculative decoding loop proposed in Section 7.
+\textbf{NPU software maturity and performance bounding.} Public XDNA 2 projects report progress on transformer execution, including FastFlowLM \cite{fastflowlm}, community ROCm/XRT backends \cite{dragonnpu}, and NPU-assisted speculative decoding \cite{sdnpu}. These reports motivate the draft-throughput assumption but do not validate HCC's proposed 8B GLM-aligned draft model, power envelope, acceptance rate, or distributed overlap. Those quantities remain part of the physical validation plan.
 
-\textbf{Proprietary orchestration vs.\ commodity execution.} The rapid maturation of open-source NPU kernels serves as a tailwind, not a competitive threat, to the HCC architecture. The core innovation of HCC is not the single-node NPU matrix multiplication kernel, but rather the Heterogeneous Compute Cascade---the zero-copy DMA-BUF memory bridge that allows an NPU on Node~1 to feed speculative drafts across a 17 $\mu$s USB4 link directly into the iGPU execution pipeline on Node~2 without waking the host CPU. HCC leverages commoditized open-source execution engines to power a proprietary multi-node orchestration layer.
+\textbf{Orchestration vs.\ commodity execution.} The rapid maturation of open-source NPU kernels is a tailwind for the HCC architecture. The proposed contribution is the Heterogeneous Compute Cascade: a typed multi-node speculative protocol whose target design combines USB4 transport with a future DMA-BUF bridge. The current prototype performs stop-and-wait orchestration using async TCP I/O; direct NPU-to-iGPU descriptor transfer and overlapped drafting remain planned.
 
 \textbf{Scalability by design.} USB4 at 40 Gbps imposes a known bandwidth ceiling. HCC is architected for exactly two nodes as its initial deployment target; the speculative amortization mechanism is specifically designed to maximize utilization within this constraint. Extension to three or more nodes would require architectural modifications beyond the current scope.
 
-\textbf{Platform-aware design.} The DMA-BUF zero-copy mechanism targets Linux. MIGraphX and Vitis AI require the ROCm stack, reflecting a deliberate design decision to optimize for AMD's heterogeneous compute ecosystem.
+\textbf{Platform-aware design.} The planned DMA-BUF mechanism targets Linux. MIGraphX and Vitis AI integration would bind the design to AMD's heterogeneous compute ecosystem; neither path is part of the currently validated distributed execution surface.
 
-\textbf{Ongoing development.} Section 5.1 demonstrated empirical USB4 P2P latency of 17 $\mu$s with kernel tuning---already 30$\times$ below the unoptimized baseline. Further reduction to $\sim$10 $\mu$s via kernel-bypass RDMA over Thunderbolt (RoCEv2 \cite{rocev2}), leveraging the rocSHMEM GDA backend available in ROCm 7.x, is under investigation as a path to eliminating speculative amortization overhead entirely.
+\textbf{Ongoing development.} Section 5.1 defines a 17 $\mu$s tuned RTT model input that must be reproduced on the target pair. Kernel-bypass transport is outside the current implementation.
 
 
 \section{Current Implementation Status}
@@ -709,15 +707,16 @@ The HCC codebase (\texttt{github.com/julianmb/hcc-edge-moe}) is a Rust implement
 \toprule
 \textbf{Component} & \textbf{Status} & \textbf{Code Location} \\
 \midrule
-USB4 transmission model (Eq.~3) & Implemented & \texttt{src/interconnect/usb4.rs} \\
+Framed TCP peer transport & Tested on localhost & \texttt{src/interconnect/usb4.rs} \\
+USB4 transmission model (Eq.~3) & Implemented analytically & \texttt{src/interconnect/usb4.rs} \\
 Speculative speedup (Eq.~5--6) & Implemented & \texttt{src/decoding/speculative.rs} \\
 TurboQuant 3-bit KV (Eq.~8--10) & Implemented & \texttt{src/kv\_cache/mod.rs} \\
-DMA-BUF zero-copy & Implemented & \texttt{src/interconnect/dmabuf.rs} \\
-Async draft pipeline & Implemented & \texttt{src/decoding/picospec.rs} \\
+DMA-BUF zero-copy & Planned; host-memory scaffold only & \texttt{src/interconnect/dmabuf.rs} \\
+Typed draft/verification protocol & Tested in simulation & \texttt{src/orchestrator.rs} \\
 Kernel tuning (ASPM, BBR) & Implemented & \texttt{src/tuner.rs} \\
 Roofline projection (Eq.~11) & Implemented & \texttt{src/benchmark.rs} \\
-Experimental measurement & Implemented & \texttt{src/measure.rs} \\
-NPU draft model runner & Implemented & \texttt{src/npu/draft\_runner.rs} \\
+Single-node llama.cpp measurement & Implemented & \texttt{src/measure.rs} \\
+NPU draft model runner & HTTP scaffold; Vitis AI planned & \texttt{src/npu/draft\_runner.rs} \\
 \midrule
 NPU context compression (Sec.~6.2) & Planned & Targeting Vitis AI VOE on XDNA 2 \\
 AF\_XDP kernel-bypass & Planned & Under investigation for $<$10 $\mu$s RTT \\
@@ -741,14 +740,14 @@ This paper acknowledges the following limitations:
 
 \textbf{Model availability.} GLM-5.1-REAP-50 is a custom REAP-pruned checkpoint. While the GLM-5.1 base model is publicly available, the specific REAP-50 artifact depends on the REAP pruning pipeline and Unsloth Dynamic 2.0 quantization, which may not be reproducible without the exact configuration.
 
-\textbf{Platform specificity.} The DMA-BUF zero-copy mechanism targets Linux with ROCm 7.2+. The architecture does not generalize to Windows, macOS, or non-AMD hardware without significant modification.
+\textbf{Platform specificity.} The planned DMA-BUF zero-copy mechanism targets Linux with ROCm 7.2+. The current prototype uses portable TCP for inter-node messages but Linux-specific \texttt{memfd}/\texttt{mmap} for its host-memory buffer scaffold.
 
-\textbf{Context compression not implemented.} The Cascaded Contextual Compression described in Section~\ref{sec:compression_planned} is a planned enhancement. The current codebase transmits full activation payloads over USB4 without NPU-side summarization.
+\textbf{Context compression not implemented.} The Cascaded Contextual Compression described in Section~\ref{sec:compression_planned} is a planned enhancement. The simulator currently carries prompt bytes in an opaque prefill message; it neither produces nor transmits model activation tensors.
 
 \section{Conclusion}
 
 
-The \textit{Heterogeneous Compute Cascade} (HCC) treats the dual-node setup not as a uniform compute pool, but as a specialized pipeline. By leveraging XDNA 2 NPU efficiency, zero-copy ONNX memory buffers, and 3-bit KV compression, the analytical framework presented in this paper demonstrates the architectural feasibility of hosting a 744B-class MoE (380B after pruning) on decentralized consumer hardware in a manner that is projected to be fast, power-efficient, and economically viable. Theoretical analysis indicates a projected TCO reduction of 92\% versus enterprise A100 deployments, with the potential to democratize massive-scale reasoning at the edge. The experimental validation roadmap in Section~\ref{sec:validation} defines the protocol for empirically confirming these projections.
+The \textit{Heterogeneous Compute Cascade} (HCC) treats the dual-node setup not as a uniform compute pool, but as a specialized pipeline. The analytical framework combines proposed XDNA 2 drafting, planned zero-copy buffers, and idealized 3-bit KV compression to study the capacity of a 744B-class MoE (380B after pruning) on decentralized consumer hardware. The current repository validates only the typed two-process protocol and single-node llama.cpp measurement path. The projected TCO and throughput advantages remain hypotheses for the experimental roadmap in Section~\ref{sec:validation}.
 
 \vspace{1cm}
 \begin{thebibliography}{20}
@@ -795,12 +794,12 @@ The following public resources document the AMD XDNA 2 NPU software stack, RDNA 
     \item \textbf{Ryzen AI Software Platform Release Notes:} \url{https://ryzenai.docs.amd.com/en/latest/} --- version-specific compatibility matrices for ONNX Runtime EP, XRT, and supported quantization formats including Block FP16.
 \end{itemize}
 
-\subsection{External USB4 Latency Corroboration}
-The empirical USB4 P2P latency measurements in Section 5.1 (14--28 $\mu$s RTT, tuned) are consistent with independent benchmarks of Thunderbolt/USB4 networking under Linux:
+\subsection{USB4 Validation Context}
+The 14--28 $\mu$s tuned RTT interval in Section 5.1 is an input to be validated. Public material establishes transport availability and provides qualitative context, but the current repository does not reproduce that interval:
 \begin{itemize}[nosep]
     \item \textbf{Thunderbolt Networking (Linux kernel docs):} \url{https://docs.kernel.org/admin-guide/thunderbolt.html} --- documents the \texttt{thunderbolt-net} driver enabling IP-over-Thunderbolt, merged in kernel 4.13+, with point-to-point networking support in kernel 6.x+.
-    \item \textbf{Intel Thunderbolt 4 latency characterization:} Published Intel whitepapers report raw PCIe-tunneled round-trip latencies of 8--15 $\mu$s at the controller level, consistent with our measured 14.13 $\mu$s minimum RTT after OS stack overhead.
-    \item \textbf{Community benchmarks (r/LocalLLaMA, Jeff Geerling):} Multiple independent reports confirm IP-over-Thunderbolt TCP throughput of 8--12 Gbps per link (consistent with our 11.5 Gbps measurement) and sub-100 $\mu$s round-trip latency with default kernel settings, reducible to $<$30 $\mu$s with the kernel tuning described in Section 5.1.3.
+    \item \textbf{Controller-level characterization:} Vendor material can bound controller latency, but it does not substitute for application-level TCP measurements on the target systems.
+    \item \textbf{Community reports:} Public IP-over-Thunderbolt results motivate the assumed range but vary by controller, kernel, topology, and test method; they are not treated as measurements of this deployment.
 \end{itemize}
 
 \subsection{Checkpoint Size Reconciliation}

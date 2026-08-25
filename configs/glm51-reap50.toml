@@ -37,6 +37,10 @@ base_latency_us = 14.0
 mtu = 9000
 tcp_overhead_us = 1.2
 kernel_tune = true
+listen_addr = "127.0.0.1:50053"
+peer_addr = "127.0.0.1:50053"
+connect_timeout_s = 60
+io_timeout_s = 30
 
 [kv_cache]
 bits = 3
@@ -57,8 +61,3 @@ hip_device = 0
 hipblaslt = true
 rocm_version = "7.2.3"
 pipeline = "hcc"
-
-[dovetail]
-enabled = false
-draft_depth = 4
-dgf_alpha = 0.3

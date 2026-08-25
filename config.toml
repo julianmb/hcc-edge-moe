@@ -39,6 +39,10 @@ base_latency_us = 14.0
 mtu = 9000
 tcp_overhead_us = 1.2
 kernel_tune = true
+listen_addr = "127.0.0.1:50053"
+peer_addr = "127.0.0.1:50053"
+connect_timeout_s = 60
+io_timeout_s = 30
 
 [kv_cache]
 bits = 3
@@ -52,7 +56,7 @@ max_context = 200000
 static_batch = 1
 
 [backend]
-inference_engine = "llamacpp-rpc"
+inference_engine = "simulated"
 rpc_port = 50052
 model_path = "/models/model.gguf"
 hip_device = 0

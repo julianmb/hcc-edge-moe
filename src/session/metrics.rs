@@ -37,14 +37,6 @@ pub fn record_transport(bytes: u64, rtt_us: f64) {
     }
 }
 
-/// Record TTFT for validation (Hypothesis H1).
-pub fn record_ttft(context_len: usize, ttft_ms: f64) {
-    if ttft_ms.is_finite() && ttft_ms >= 0.0 {
-        metrics::histogram!("hcc_ttft_ms").record(ttft_ms);
-    }
-    metrics::gauge!("hcc_context_len").set(context_len as f64);
-}
-
 /// Record KV cache metrics.
 pub fn record_kv_cache(sessions: usize, cache_gb: f64) {
     if cache_gb.is_finite() && cache_gb >= 0.0 {

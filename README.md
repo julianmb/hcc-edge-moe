@@ -48,7 +48,8 @@ The command labels its output as a **projection**. It does not load GLM-5.1, gen
 | GLM-5.1 REAP-50 capacity | Projected | The 161 GB checkpoint fits within 256 GB gross cluster memory on paper. |
 | Decode roofline | Projected | Computed from configured active-weight traffic and sustained memory bandwidth. |
 | Speculative speedup | Assumed | Calculated from draft length, acceptance rate, and draft cost. Acceptance is not yet measured for this checkpoint. |
-| Dual-node GLM-5.1 inference | Experimental | Transport and orchestration components exist, but a correct end-to-end run has not yet been demonstrated. |
+| Dual-node protocol scaffold | Tested | Two processes exchange framed TCP session, prefill, draft, verification, and shutdown messages on localhost. |
+| Dual-node GLM-5.1 inference | Experimental | Physical USB4 execution, model sharding, token equivalence, and target-kernel verification have not yet been demonstrated. |
 
 Projected numbers are intentionally not presented as benchmark results.
 
@@ -98,14 +99,16 @@ Key modules:
 
 - `src/orchestrator.rs`: HCC pipeline — NPU drafts, iGPU verifies over USB4 (paper Algorithm 1).
 - `src/decoding/speculative.rs`: Eq. 5-6 — expected accepted tokens E[k], speedup S.
-- `src/decoding/picospec.rs`: Async draft pipeline — NPU drafts continuously while verification is in-flight.
-- `src/interconnect/usb4.rs`: Eq. 3 — USB4 transmission model with kernel tuning.
-- `src/interconnect/dmabuf.rs`: DMA-BUF zero-copy between NPU and iGPU.
+- `src/decoding/picospec.rs`: Draft-batch queue and compact token/probability encoding; the tested simulator currently uses one stop-and-wait batch.
+- `src/interconnect/usb4.rs`: Framed TCP peer transport over configurable thunderbolt-net addresses plus the Eq. 3 analytical timing model.
+- `src/interconnect/dmabuf.rs`: Host-memory `memfd`/`mmap` scaffold for a future XRT/ROCm DMA-BUF bridge; it is not cross-driver zero-copy today.
 - `src/kv_cache/`: Mixed-precision KV cache — TurboQuant 3-bit values, FP8 keys (Eq. 8-10).
 - `src/measure.rs`: Real llama.cpp process execution and timing for Hypothesis H1/H2 validation.
 - `src/benchmark.rs`: Eq. 11 — capacity and roofline projection.
 
 Backends are `llamacpp-rpc` for practical local execution, `migraphx` for experimental direct ROCm execution, and `simulated` for configuration/projection work without model execution.
+
+`hcch run` currently proves the distributed protocol with the `simulated` backend and rejects every real inference backend. llama.cpp remains the measured single-node backend used by `measure`; token-equivalent distributed verification and MIGraphX execution are not wired into `run`.
 
 ## Why HCC
 

@@ -2,7 +2,7 @@
 name = "hcc-edge-moe"
 version = "0.2.0"
 edition = "2021"
-description = "Heterogeneous Compute Cascade — production distributed MoE inference across dual AMD Ryzen APU nodes via USB4"
+description = "Heterogeneous Compute Cascade research runtime for dual AMD Ryzen APU nodes over USB4"
 
 [[bin]]
 name = "hcch"

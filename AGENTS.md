@@ -9,7 +9,7 @@ github.com/julianmb/hcc-edge-moe.
 1. This is a **dual-box** project — many scripts assume a peer host and
    configured USB4 networking; single-box runs will fail at discovery.
 2. Model shards/cascade configs reference workshop paths
-   (`~/source/strix-halo-rocmfpx-hub/models/...`) on BOTH machines — keep
+   (`~/source/halofpx-research/models/...`) on BOTH machines — keep
    both sides in sync before benchmarking.
 3. Registry entry `hcc-edge-moe` exists in the workshop's superset
    `config/models.json`, not yet in halofpx's public registry.

@@ -116,10 +116,13 @@ impl SessionManager {
         }
     }
 
-    /// KV cache memory per session in GB (from §10.3).
+    /// KV cache memory per session in GB (from §6 and §10.3).
+    /// For GLM-5.3-Flash, there are 45 layers (22.5 per node).
+    /// Under full MLA, this evaluates to:
+    /// context_len * 22.5 * 576 * 2 / 1e9 ≈ 5.18 GB per session at 200K tokens.
     pub fn kv_cache_gb_per_session(&self, context_len: usize) -> f64 {
         let kv_per_token = (self.model_cfg.kv_lora_rank + self.model_cfg.qk_rope_head_dim) as f64;
-        let layers_per_node = self.model_cfg.num_layers as f64 / 2.0; // 39 per node
+        let layers_per_node = self.model_cfg.num_layers as f64 / 2.0;
         let bytes_per_value = 2.0; // FP16
         context_len as f64 * layers_per_node * kv_per_token * bytes_per_value / 1e9
     }
@@ -162,8 +165,8 @@ mod tests {
         let cfg = HccConfig::default();
         let mgr = SessionManager::new(9, 200_000, 128.0, &cfg.model);
         let gb = mgr.kv_cache_gb_per_session(200_000);
-        // ~9 GB per session at 200K
-        assert!((gb - 9.0).abs() < 1.0, "kv_cache_gb={gb}");
+        // ~5.18 GB per session at 200K for GLM-5.3-Flash (45 layers)
+        assert!((gb - 5.18).abs() < 1.0, "kv_cache_gb={gb}");
     }
 
     #[test]

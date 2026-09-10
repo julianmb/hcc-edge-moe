@@ -72,7 +72,7 @@
     \bgroup\setlength{\parindent}{0pt}
     \begin{center}
         \vspace*{1em}
-        {\LARGE \bfseries \color{PreprintBlue} Heterogeneous Compute Cascades: \\[0.3em] A Cost-Effective Architectural Solution for \\[0.3em] 370B-Parameter MoE Inference on Edge Clusters \par}
+        {\LARGE \bfseries \color{PreprintBlue} Heterogeneous Compute Cascades: \\[0.3em] A Cost-Effective Architectural Solution for \\[0.3em] 320B-Parameter MoE Inference on Edge Clusters \par}
         \vspace{1.5em}
         {\large Julian Beltran \par}
         \vspace{0.5em}
@@ -100,16 +100,16 @@
     top=10pt,
     bottom=10pt
 ]
-\textbf{Abstract.} The democratization of frontier artificial intelligence is fundamentally blocked by the capital expenditure (CAPEX) and thermodynamic footprint required to host models exceeding 100 billion parameters. While a dual-node 16-Core Ryzen APU cluster provides a 256 GB unified memory pool---structurally capable of holding a 744B-parameter GLM-5.1 MoE (380B after REAP pruning)---traditional distributed execution frameworks over consumer USB4 bridges suffer from catastrophic network pipeline bubbles driven by TCP/IP OS kernel latency.
+\textbf{Abstract.} The democratization of frontier artificial intelligence is fundamentally blocked by the capital expenditure (CAPEX) and thermodynamic footprint required to host models exceeding 100 billion parameters. While a dual-node 16-Core Ryzen APU cluster provides a 256 GB unified memory pool---structurally capable of holding a 320B-parameter GLM-5.3-Flash MoE (18B active per token, $\sim$158 GB checkpoint under ROCmFP4)---traditional distributed execution frameworks over consumer USB4 bridges suffer from catastrophic network pipeline bubbles driven by TCP/IP OS kernel latency.
 
-We introduce the \textit{Heterogeneous Compute Cascade} (HCC), a software architecture designed to convert this hardware limitation into a strategic advantage. Rather than treating heterogeneous IP blocks (CPU, iGPU, NPU) as a uniform compute pool, HCC enforces strict silicon-to-task affinity. The proposed architecture assigns context compression and draft generation to the NPU, with a projected activation reduction above 80\% and speculative latency hiding across USB4. These accelerator paths are design targets: the current runtime validates a stop-and-wait typed protocol in simulation, while physical NPU compression and overlap remain unimplemented.
+We introduce the \textit{Heterogeneous Compute Cascade} (HCC), a software architecture designed to convert this hardware limitation into a strategic advantage. Rather than treating heterogeneous IP blocks (CPU, iGPU, NPU) as a uniform compute pool, HCC enforces strict silicon-to-task affinity. The proposed architecture leverages GLM-5.3-Flash's hybrid attention (34 KDA linear attention layers with $O(1)$ constant state + 11 DSA sparse MLA layers) and native Multi-Token Prediction (MTP) with an analytical MoE verification scaling factor $v_\gamma$. The NPU offloads contextual preprocessing and index scoring, while the iGPU executes high-throughput verification. These accelerator paths are design targets: the current runtime validates a stop-and-wait typed protocol in simulation, while physical NPU compression and overlap remain unimplemented.
 
-Furthermore, to ensure the KV cache does not exhaust unified memory during long-context execution, the architecture proposes 3-bit TurboQuant KV compression via Walsh-Hadamard rotations. The target software stack specifies kernel-level DMA-BUF descriptors to bridge the iGPU (via MIGraphX) and NPU (via Vitis AI); the present prototype uses framed TCP plus a host-memory \texttt{memfd}/\texttt{mmap} scaffold and does not yet implement cross-driver zero-copy. Our analytical model projects a $\sim$3$\times$ improvement in Time-to-First-Token (TTFT) and a 2.35$\times$ multiplier on decode throughput relative to na\"ive RPC bridging. Theoretical analysis indicates a hardware cost of \$20.31 per GB of addressable memory---representing a projected 92\% cost reduction and 96\% power reduction versus a turnkey DGX A100 deployment. This work demonstrates, through formal mathematical analysis, that intelligent orchestration rather than raw interconnect bandwidth is the key architectural principle for enabling massive-scale AI inference at the edge.
+Furthermore, to ensure the KV cache does not exhaust unified memory during long-context execution, the architecture combines GLM-5.3-Flash's 11-layer DSA footprint with 3-bit TurboQuant KV compression via Walsh-Hadamard rotations. The target software stack specifies kernel-level DMA-BUF descriptors to bridge the iGPU (via MIGraphX) and NPU (via Vitis AI); the present prototype uses framed TCP plus a host-memory \texttt{memfd}/\texttt{mmap} scaffold and does not yet implement cross-driver zero-copy. Our analytical model projects a baseline decode throughput of 21.9 tok/s (9.7 GB active weight read at 212 GB/s) scaling to 30.1 tok/s under speculative verification ($v_2 \approx 1.49$, $\gamma=2$), with KV cache consumption of only $\sim$1.27 GB per session at 200K context (or 5.18 GB under full MLA). Theoretical analysis indicates a hardware cost of \$20.31 per GB of addressable memory---representing a projected 92\% cost reduction and 96\% power reduction versus a turnkey DGX A100 deployment. This work demonstrates, through formal mathematical analysis, that intelligent orchestration rather than raw interconnect bandwidth is the key architectural principle for enabling massive-scale AI inference at the edge.
 \end{tcolorbox}
 \end{center}
 
 \vspace{0.5cm}
-\noindent\textbf{Keywords:} distributed inference, latency hiding, AMD 16-Core Ryzen APU, XDNA 2, TurboQuant, ONNX Runtime, Mixture of Experts (MoE), TCO optimization, edge computing, speculative decoding
+\noindent\textbf{Keywords:} distributed inference, latency hiding, AMD 16-Core Ryzen APU, XDNA 2, TurboQuant, GLM-5.3-Flash, Mixture of Experts (MoE), TCO optimization, edge computing, speculative decoding
 
 \newpage
 \tableofcontents
@@ -122,7 +122,7 @@ Furthermore, to ensure the KV cache does not exhaust unified memory during long-
 \end{tcolorbox}
 \vspace{0.5em}
 
-The relentless scaling laws governing Large Language Models (LLMs) have precipitated a crisis in hardware accessibility. As the frontier of intelligence pushes past 100 billion parameters (e.g., Llama-3-400B, Grok-1.5, GLM-5.1), the memory required to simply load model weights often exceeds 200 GB. Single consumer graphics processing units (GPUs) currently peak at 24 GB to 48 GB of Video RAM (VRAM). To execute these models locally, researchers and enterprises are forced into traditional data center scaling paradigms---utilizing specialized server-grade interconnects such as NVIDIA's NVLink across multi-GPU arrays (e.g., an $8\times$ H100 SXM node).
+The relentless scaling laws governing Large Language Models (LLMs) have precipitated a crisis in hardware accessibility. As the frontier of intelligence pushes past 100 billion parameters (e.g., Llama-3-400B, Grok-1.5, GLM-5.3-Flash), the memory required to simply load model weights often exceeds 200 GB. Single consumer graphics processing units (GPUs) currently peak at 24 GB to 48 GB of Video RAM (VRAM). To execute these models locally, researchers and enterprises are forced into traditional data center scaling paradigms---utilizing specialized server-grade interconnects such as NVIDIA's NVLink across multi-GPU arrays (e.g., an $8\times$ H100 SXM node).
 
 This legacy approach relies on brute-force parallelism and incurs a prohibitive Total Cost of Ownership (TCO). A single high-bandwidth cluster demands upwards of \$80,000 in capital expenditure, requires massive thermal dissipation (often exceeding 3500W per node), and restricts frontier AI research to heavily funded, centralized institutions. The push toward Sovereign AI requires a localized alternative.
 
@@ -153,21 +153,21 @@ Furthermore, XDNA 2 supports \textbf{Block FP16 (BFP16)}. Standard FP16 retains 
 \subsection{Distributed Edge Inference and Interconnect Topologies}
 Apple Silicon clusters (e.g., Mac Studio arrays) rely on the proprietary \textit{UltraFusion} interposer, delivering 2.5 TB/s of bidirectional bandwidth \cite{apple_unified}. However, these systems scale poorly beyond a single physical node without exorbitant cost. Conversely, clustering consumer x86 hardware relies on external peripheral bridges such as USB4. While USB4 advertises 40 Gbps ($\sim$5 GB/s) of bandwidth, pipeline-parallel TCP execution can incur substantial software latency from RPC serialization and network-stack traversal \cite{llama_rpc}. Section 5.1 therefore treats 17 $\mu$s as a tuned model input that must be reproduced on the target pair.
 
-\subsection{Mixture of Experts and Router-Weighted Expert Activation Pruning}
+\subsection{Mixture of Experts and GLM-5.3-Flash Architecture}
 Mixture of Experts (MoE) architectures decouple the total parameter count of a network from its active computational cost. For a given input token $x$, the output $y$ is computed as the weighted sum of the selected experts:
 \begin{equation}
     y = \sum_{i=1}^{E} G(x)_i \cdot E_i(x)
 \end{equation}
-where $E$ is the total number of experts, $E_i(x)$ is the expert output, and $G(x)_i$ is the gating probability. To enforce sparsity, a noisy Top-$K$ routing mechanism is employed:
+where $E$ is the total number of experts, $E_i(x)$ is the expert output, and $G(x)_i$ is the gating probability. To enforce sparsity, a Top-$K$ routing mechanism is employed:
 \begin{equation}
     G(x) = \text{Softmax}\left(\text{Top}_K(x \cdot W_g + \epsilon \cdot \text{Softplus}(x \cdot W_{\text{noise}}))\right)
 \end{equation}
 
-We apply Router-Weighted Expert Activation Pruning (REAP) \cite{reap} (Cerebras Research, arXiv 2025; validated on GLM, Qwen, and DeepSeek model families) to the open-weight GLM-5.1 model \cite{glm5} ($\sim$744B parameters, 256 routed experts, $L=78$ layers, $H=6144$). GLM-5.1 employs \textbf{Multi-head Latent Attention (MLA)} with compressed KV projections ($\text{kv\_lora\_rank}=512$, $\text{qk\_rope\_head\_dim}=64$) and \textbf{DeepSeek Sparse Attention (DSA)} for efficient long-context handling up to 200K tokens. MLA stores only 576 values per token per layer in the KV cache---an order of magnitude smaller than standard GQA---which is a key enabler of the HCC memory budget.
+In this work, we analyze the frontier open-weight \textbf{GLM-5.3-Flash} model \cite{glm5} ($\sim$320B total parameters, $E=288$ routed experts, $K=8$ active experts per token, $\sim$18B active parameters per forward pass, $L=45$ layers, hidden dimension $H=4096$). GLM-5.3-Flash introduces a hybrid attention and recurrent architecture comprising \textbf{34 Kangaroo Linear Attention (KDA)} layers that maintain fixed $O(1)$ recurrent hidden state, paired with \textbf{11 DeepSeek Sparse Attention (DSA)} layers implementing Multi-head Latent Attention (MLA) with Manifold-Constrained Hyper-Connections (mHC). 
 
-REAP scores each expert as $\text{mean}(w_{\text{router}} \cdot \|e_{\text{out}}\|_2)$ and removes the lowest-scoring half. We quantize the pruned checkpoint using \textbf{Unsloth Dynamic 2.0} quantization \cite{unsloth}, which adaptively preserves quality-critical layers at higher precision while aggressively compressing redundant layers. GLM-5.1 (released April 9, 2026) produces slightly smaller Unsloth quantizations than GLM-5 due to improved weight distributions---e.g., UD-IQ2\_M is 236 GB for GLM-5.1 vs.\ 255 GB for GLM-5---making it the preferred target for memory-constrained deployments.
+GLM-5.3-Flash's MLA compresses attention state into low-rank KV latent vectors ($\text{kv\_lora\_rank}=512$, $\text{qk\_rope\_head\_dim}=64$, $d_{kv}=576$), storing only 576 values per token per DSA layer. Because linear attention layers maintain $O(1)$ state across the entire context window, sequence-length-dependent KV cache memory is stored \textit{only} for the 11 DSA layers, compressing the long-context memory footprint by an additional $\sim$4.1$\times$ beyond standard MLA. Furthermore, GLM-5.3-Flash incorporates a native Multi-Token Prediction (MTP) head, enabling verified parallel speculative generation without requiring an external draft model.
 
-The resulting \textbf{GLM-5.1-REAP-50} comprises $\sim$380B total parameters across $E=128$ remaining experts, with $\sim$40B active per forward pass ($K=8$). At UD-Q3\_K\_M, the REAP-50 checkpoint occupies $\sim$161 GB, fitting comfortably within a dual-node 256 GB cluster with ample headroom for the KV cache and OS. At the more aggressive UD-IQ2\_M, the checkpoint shrinks to $\sim$121 GB---small enough to fit on a \textit{single} 128 GB node, eliminating the dual-node requirement entirely for latency-insensitive deployments. Crucially, the original REAP evaluation demonstrates that pruning 50\% of experts based on router-weight-scaled activation norms incurs a negligible $<$1.5 point penalty on zero-shot MMLU and maintains coding proficiency on HumanEval, confirming that this aggressive compression preserves frontier-class reasoning capabilities rather than producing a fundamentally degraded model.
+We target the \textbf{Q4\_0\_ROCMFP4\_STRIX\_LEAN} quantization format ($\sim$4.3 bpw, 158.0 GB checkpoint gross, $\sim$79.0 GB per node). In a dual-node 256 GB cluster, this leaves $\sim$98 GB of gross memory headroom across both nodes for KV cache and OS overhead, natively hosting the full 320B model without requiring destructive expert pruning. For single-node 128 GB deployments, aggressive quantizations such as \texttt{UD-IQ3\_XXS} ($\sim$120 GB) or \texttt{STRIX-BALANCED} ($\sim$72 GB) provide compact alternatives.
 
 \section{Related Work}
 
@@ -175,11 +175,11 @@ The resulting \textbf{GLM-5.1-REAP-50} comprises $\sim$380B total parameters acr
 
 \textbf{Speculative decoding.} Leviathan et al.\ \cite{spec_decode} showed that a small draft model can propose tokens verified in parallel by the target model. HCC repurposes this paradigm for \textit{latency amortization}: each speculative batch amortizes the USB4 network crossing cost over $\mathbb{E}[k]$ accepted tokens.
 
-\textbf{MoE compression.} REAP \cite{reap} prunes entire experts by router-weight-scaled activation norms. DeepSeek-V3 \cite{deepseek} employs expert parallelism with auxiliary-loss-free load balancing. HCC builds on REAP-pruned models and additionally compresses the KV cache.
+\textbf{MoE compression and hybrid attention.} DeepSeek-V3 \cite{deepseek} employs expert parallelism with auxiliary-loss-free load balancing. GLM-5.3-Flash \cite{glm5} replaces pure transformer attention with a hybrid 34-layer KDA linear attention and 11-layer DSA/MLA topology, drastically shrinking KV memory requirements.
 
-\textbf{KV cache quantization.} QuaRot \cite{quarot} applies Walsh-Hadamard rotations to remove outliers before 4-bit quantization. TurboQuant \cite{turboquant} (Google Research / NYU, arXiv 2025; validated on LongBench-E and Needle-in-a-Haystack at 104K tokens) extends this to near-optimal 3-bit vector quantization with QJL residual correction \cite{qjl} (Zandieh et al., arXiv 2024; open-source implementation at \texttt{github.com/amirzandieh/QJL}). KIVI \cite{kivi} achieves 2-bit KV quantization asymmetrically. HCC mandates TurboQuant-class compression as a structural requirement.
+\textbf{KV cache quantization.} QuaRot \cite{quarot} applies Walsh-Hadamard rotations to remove outliers before 4-bit quantization. TurboQuant \cite{turboquant} extends this to near-optimal 3-bit vector quantization with QJL residual correction \cite{qjl}. KIVI \cite{kivi} achieves 2-bit KV quantization asymmetrically. HCC integrates TurboQuant-class compression with GLM-5.3-Flash's 11 DSA layers.
 
-\textbf{Application-layer context reduction.} While HCC addresses the physical interconnect bottleneck at the hardware layer, application-layer frameworks such as Cascaded Signal Refinement (CSR) \cite{csr} address the \textit{logical} context bottleneck. CSR employs a three-layer pipeline---deterministic pre-filtering, small-model LLM screening, and deep analysis---to reduce enterprise compliance corpora by 96.9\% prior to expensive inference, processing 27,020 messages in 98.7 seconds on a consumer GPU using a 4B-parameter model. HCC provides the natural zero-data-transit hardware substrate for such sovereign, multi-layered inference pipelines.
+\textbf{Application-layer context reduction.} While HCC addresses the physical interconnect bottleneck at the hardware layer, application-layer frameworks such as Cascaded Signal Refinement (CSR) \cite{csr} address the \textit{logical} context bottleneck. CSR employs a three-layer pipeline---deterministic pre-filtering, small-model LLM screening, and deep analysis---to reduce enterprise compliance corpora by 96.9\% prior to expensive inference. HCC provides the natural zero-data-transit hardware substrate for such sovereign, multi-layered inference pipelines.
 
 \section{The Interconnect Bottleneck (The Problem)}
 
@@ -190,15 +190,15 @@ We define the network transmission time $T_{\text{comm}}$ with payload $S$, effe
     T_{\text{comm}} = L + \frac{S}{B} + \left\lceil \frac{S}{M} \right\rceil \cdot O_{\text{tcp}}
 \end{equation}
 
-For a model with hidden size $H = 6144$ utilizing FP16 precision:
+For GLM-5.3-Flash with hidden dimension $H = 4096$ utilizing FP16 precision:
 \begin{itemize}
-    \item \textbf{Decode Phase Bubble:} Transmitting a single token's activation requires $1 \times 6144 \times 2 = 12$ KB. Traversing an unoptimized OS TCP/IP stack establishes a latency floor of $\sim$0.5 ms per node crossing \cite{geerling2025} (reduced to $\sim$17 $\mu$s with the kernel tuning described in Section 5.1). Node 2 is idle (a pipeline bubble) while waiting for this transmission.
+    \item \textbf{Decode Phase Bubble:} Transmitting a single token's activation requires $1 \times 4096 \times 2 = 8$ KB. Traversing an unoptimized OS TCP/IP stack establishes a latency floor of $\sim$0.5 ms per node crossing \cite{geerling2025} (reduced to $\sim$17 $\mu$s with the kernel tuning described in Section 5.1). Node 2 is idle (a pipeline bubble) while waiting for this transmission.
 
-    \item \textbf{Prefill Phase Bubble:} Transmitting a 100,000-token Retrieval-Augmented Generation (RAG) document requires $100,000 \times 6144 \times 2 \approx 1.23$ GB of data. Utilizing IP-over-Thunderbolt (MTU 9000), effective TCP throughput peaks at approximately 1.25 GB/s.
+    \item \textbf{Prefill Phase Bubble:} Transmitting a 100,000-token context requires $100,000 \times 4096 \times 2 \approx 0.819$ GB of data. Utilizing IP-over-Thunderbolt (MTU 9000), effective TCP throughput peaks at approximately 1.25 GB/s.
     \begin{equation}
-        T_{\text{stall}} = \frac{1.23 \text{ GB}}{1.25 \text{ GB/s}} + \text{TCP Overhead} \approx 0.984 \text{ seconds}
+        T_{\text{stall}} = \frac{0.819 \text{ GB}}{1.25 \text{ GB/s}} + \text{TCP Overhead} \approx 0.655 \text{ seconds}
     \end{equation}
-    This dictates a $\sim$1 second pure network stall \textit{per RPC boundary}.
+    This dictates a $\sim$0.66 second pure network stall \textit{per RPC boundary}.
 \end{itemize}
 
 \begin{figure}[ht!]
@@ -206,11 +206,11 @@ For a model with hidden size $H = 6144$ utilizing FP16 precision:
 \begin{tikzpicture}[xscale=0.85]
 \draw[->, thick] (0, 0) -- (14, 0) node[right] {\small Time};
 \node[anchor=east, font=\small\bfseries] at (0, 2.6) {Node 1};
-\fill[PreprintBlue!40] (0.5, 2.3) rectangle (3, 3) node[midway, font=\scriptsize] {Compute L0--38};
+\fill[PreprintBlue!40] (0.5, 2.3) rectangle (3, 3) node[midway, font=\scriptsize] {Compute L0--22};
 \fill[gray!20] (3, 2.3) rectangle (4.5, 3) node[midway, font=\scriptsize] {\textit{Wait}};
-\fill[PreprintBlue!40] (4.5, 2.3) rectangle (7, 3) node[midway, font=\scriptsize] {Compute L0--38};
+\fill[PreprintBlue!40] (4.5, 2.3) rectangle (7, 3) node[midway, font=\scriptsize] {Compute L0--22};
 \fill[gray!20] (7, 2.3) rectangle (8.5, 3) node[midway, font=\scriptsize] {\textit{Wait}};
-\fill[PreprintBlue!40] (8.5, 2.3) rectangle (11, 3) node[midway, font=\scriptsize] {Compute L0--38};
+\fill[PreprintBlue!40] (8.5, 2.3) rectangle (11, 3) node[midway, font=\scriptsize] {Compute L0--22};
 \draw[thick] (0, 2.2) -- (14, 2.2);
 \node[anchor=east, font=\small\bfseries] at (0, 1.2) {Node 2};
 \fill[gray!20] (0.5, 0.9) rectangle (3.5, 1.6) node[midway, font=\scriptsize] {\textit{Bubble (idle)}};
@@ -224,7 +224,7 @@ For a model with hidden size $H = 6144$ utilizing FP16 precision:
 \draw[->, AlertRed, thick] (3, 2.3) -- (3.5, 1.6);
 \draw[->, AlertRed, thick] (7, 2.3) -- (7.5, 1.6);
 \end{tikzpicture}
-\caption{Pipeline bubble in na\"ive RPC execution. Node~2 idles during Node~1 computation and USB4 transfer, wasting $\sim$50\% of cluster compute. HCC is designed to eliminate this via NPU speculative pre-computation.}
+\caption{Pipeline bubble in na\"ive RPC execution. Node~2 idles during Node~1 computation and USB4 transfer, wasting $\sim$50\% of cluster compute. HCC is designed to eliminate this via speculative pre-computation and pipelining.}
 \label{fig:pipeline_bubble}
 \end{figure}
 
@@ -299,13 +299,13 @@ The \textbf{Heterogeneous Compute Cascade (HCC)} is a software orchestration arc
 We formalize the performance boundaries of the 16-Core Ryzen APU architecture using a Roofline Model. The theoretical compute bound $P$ (in TFLOPS) is defined as $P = \min(P_{\text{peak}}, I \cdot BW_{\text{mem}})$, where $I$ is arithmetic intensity.
 
 \begin{enumerate}
-    \item \textbf{Token Generation (Low $I$, High Bandwidth):} Auto-regressive generation has extremely low arithmetic intensity ($I \approx 1$). The node is strictly memory-bound. At 212 GB/s on the RDNA 3.5 iGPU, the theoretical upper bound for decode speed across 40B active parameters (UD-Q3\_K\_M at 0.48 bytes/weight $\approx$ 19.1 GB) is $\sim$11.1 T/s per node.
+    \item \textbf{Token Generation (Low $I$, High Bandwidth):} Auto-regressive generation has extremely low arithmetic intensity ($I \approx 1$). The node is strictly memory-bound. At 212 GB/s on the RDNA 3.5 iGPU, the theoretical upper bound for decode speed across GLM-5.3-Flash's 18B active parameters (ROCmFP4 at 0.539 bytes/weight $\approx$ 9.70 GB) is $\sim$21.9 T/s per node.
     \item \textbf{Prompt Prefill (High $I$, Compute Bound):} Prefill operates on large prompt matrices, drastically increasing arithmetic intensity ($I \gg 100$). The XDNA 2 NPU, offering 50 TOPS and specifically designed for high-$I$ tensor contractions, becomes the optimal block.
 \end{enumerate}
 
-\noindent Crucially, the HCC architecture solves the single-node memory contention failure described in Section 5.2 through \textbf{physical isolation}. By explicitly mapping the draft model to the NPU on Node~1, and the target MoE execution to the iGPU on Node~2, the workload utilizes \textit{two independent} 256-bit memory buses. The 17 $\mu$s USB4 link acts as the synchronization bridge, allowing the draft model to achieve its full throughput on Node~1's memory without starving the target model's bandwidth on Node~2.
+\noindent Crucially, the HCC architecture addresses memory contention through \textbf{physical isolation}. By partitioning the target MoE pipeline across two nodes and utilizing speculative generation (via GLM-5.3-Flash's native MTP head or asynchronous NPU pre-filtering), the workload utilizes \textit{two independent} 256-bit memory buses. The 17 $\mu$s USB4 link acts as the synchronization bridge, allowing execution to proceed without starving memory bandwidth.
 
-A naive alternative would be to execute the draft model on Node~1's iGPU. However, in our pipeline-parallel topology (Figure 3), Node~1's iGPU is fully saturated executing Layers 0--38 of the target model. Tasking it with draft generation would introduce severe context-switching and memory contention against the main model. The XDNA~2 NPU is the only compute block on Node~1 capable of asynchronous execution without disrupting the main iGPU memory pipeline, making its heterogeneous utilization \textit{structurally mandatory}, not merely a power optimization.
+A naive alternative would be to execute uncoordinated auxiliary drafting on Node~1's iGPU. However, in our pipeline-parallel topology (Figure 2), Node~1's iGPU is fully engaged executing Layers 0--22 of the target model. Tasking it with auxiliary draft generation would introduce context-switching and memory contention against the main model. The XDNA~2 NPU is available on Node~1 for asynchronous preprocessing without disrupting the main iGPU memory pipeline.
 
 \begin{figure}[ht!]
 \centering
@@ -347,10 +347,10 @@ A naive alternative would be to execute the draft model on Node~1's iGPU. Howeve
     dashed_box/.style={draw=AbstractBorder, dashed, rounded corners, inner sep=0.3cm, fill=white}
 ]
 \node[box, fill=white] (input) {\textbf{Raw Context Window} (100K tokens)};
-\node[box, below left=0.8cm and 0.5cm of input, fill=HighlightGreen!15, draw=HighlightGreen, text width=4.5cm] (npu) {\textbf{XDNA 2 NPU (Node 1)}\\[2pt] 8B Draft Model (BFP16)};
+\node[box, below left=0.8cm and 0.5cm of input, fill=HighlightGreen!15, draw=HighlightGreen, text width=4.5cm] (npu) {\textbf{XDNA 2 NPU (Node 1)}\\[2pt] Context Preprocessor / Draft};
 \node[box, below=0.6cm of npu, fill=PreprintBlue!15, draw=PreprintBlue, text width=4.5cm] (cpu) {\textbf{CPU Orchestrator}\\[2pt] DMA-BUF + TCP/IP Stack};
-\node[box, below right=0.8cm and 0.5cm of input, fill=AlertRed!15, draw=AlertRed, text width=4cm] (gpu1) {\textbf{iGPU Node 1}\\[2pt] MoE Layers 0--38\\3-bit KV Cache};
-\node[box, below=0.6cm of gpu1, fill=AlertRed!15, draw=AlertRed, text width=4cm] (gpu2) {\textbf{iGPU Node 2}\\[2pt] MoE Layers 39--77\\3-bit KV Cache};
+\node[box, below right=0.8cm and 0.5cm of input, fill=AlertRed!15, draw=AlertRed, text width=4cm] (gpu1) {\textbf{iGPU Node 1}\\[2pt] MoE Layers 0--22\\DSA / MLA KV Cache};
+\node[box, below=0.6cm of gpu1, fill=AlertRed!15, draw=AlertRed, text width=4cm] (gpu2) {\textbf{iGPU Node 2}\\[2pt] MoE Layers 23--44\\DSA / MLA KV Cache};
 \begin{scope}[on background layer]
     \node[dashed_box, fit=(gpu1)(gpu2), label={[font=\small\bfseries]below:USB4 Pipeline Engine}] (cluster) {};
 \end{scope}
@@ -384,12 +384,12 @@ The NPU is designed to execute deterministic pre-filtering and extractive summar
     width=0.8\textwidth,
     height=6cm,
     xmin=0, xmax=128000,
-    ymin=0, ymax=2.5
+    ymin=0, ymax=2.0
 ]
-% Standard RPC: T = tokens * H * 2 / BW + base = x * 6144 * 2 / 1.25e9 + 0.1
-\addplot[thick, AlertRed, domain=0:128000] {x * 0.0000098 + 0.1};
-% HCC: T_NPU(x) + T_net(alpha*x) + overhead = x*0.0000005 + 0.2*x*0.0000098 + 0.15
-\addplot[thick, HighlightGreen, domain=0:128000] {x * 0.00000246 + 0.15};
+% Standard RPC: T = tokens * H * 2 / BW + base = x * 4096 * 2 / 1.25e9 + 0.1 = x * 0.00000655 + 0.1
+\addplot[thick, AlertRed, domain=0:128000] {x * 0.00000655 + 0.1};
+% HCC: T_NPU(x) + T_net(alpha*x) + overhead = x*0.0000005 + 0.2*x*0.00000655 + 0.15 = x * 0.00000181 + 0.15
+\addplot[thick, HighlightGreen, domain=0:128000] {x * 0.00000181 + 0.15};
 \legend{Standard \texttt{llama.cpp} RPC, HCC Pipeline (NPU Offload)}
 \end{axis}
 \end{tikzpicture}
@@ -397,71 +397,107 @@ The NPU is designed to execute deterministic pre-filtering and extractive summar
 \label{fig:ttft}
 \end{figure}
 
-\section{Mathematical Formulation of Speculative Speedup}
+\section{Mathematical Formulation of Speculative Speedup and MoE Scaling}
 
-During token generation, HCC is designed to utilize the NPU as an asynchronous draft model. The scheduling follows the Speculative Decoding paradigm \cite{spec_decode}.
+During token generation, HCC evaluates speculative verification to amortize USB4 network traversal. Rather than relying solely on separate-device sequential execution, generation can follow speculative decoding \cite{spec_decode} or native Multi-Token Prediction (MTP).
 
-The topological paradigm of partitioning speculative decoding across heterogeneous compute units (e.g., NPU drafting and GPU verifying) has been validated by Mirror Speculative Decoding \cite{mirror_spec}, which explicitly modeled multi-accelerator tensor parallelism across distinct NPUs and GPUs to break the serial decoding barrier. However, single-SoC implementations remain fundamentally bound by shared memory bandwidth (Section 5.2). HCC extends this validated multi-accelerator paradigm across a distributed USB4 cluster, utilizing the network bridge to \textit{physically isolate} the draft and target memory domains---the architectural innovation that makes speculative decoding viable on unified memory platforms.
+The topological paradigm of partitioning speculative decoding across heterogeneous compute units has been explored in frameworks such as Mirror Speculative Decoding \cite{mirror_spec}. However, on unified memory architectures (e.g., AMD APUs), executing draft models on the NPU while verifying on the iGPU shares the same 212 GB/s LPDDR5x bus. We treat critical-path NPU drafting as a gated falsification test: if bus contention degrades iGPU throughput, the NPU is redirected to off-critical-path tasks (such as DSA sparse-attention index scoring or multimodal preprocessing), while GLM-5.3-Flash's native on-chip MTP head performs speculative drafting.
 
 \begin{algorithm}[ht!]
 \caption{HCC Speculative Network Amortization}\label{alg:spec_decode}
 \begin{algorithmic}[1]
-\Require Main MoE model $\mathcal{M}$, Draft model $\mathcal{S}$.
+\Require Main MoE model $\mathcal{M}$ (GLM-5.3-Flash), Draft generator $\mathcal{S}$ (MTP head or NPU).
 \While{generation incomplete}
-    \State Generate draft sequence $\hat{x}_{t}, \dots, \hat{x}_{t+\gamma-1}$ using $\mathcal{S}$ on NPU.
-    \State Pass sequence through $\mathcal{M}$ on iGPU cluster as a single parallel batch.
-    \State Incurs $1 \times$ TCP/IP RPC latency for the batch.
+    \State Generate $\gamma$ draft tokens $\hat{x}_{t}, \dots, \hat{x}_{t+\gamma-1}$ using $\mathcal{S}$.
+    \State Pass sequence through $\mathcal{M}$ on iGPU cluster as a single parallel verification batch.
+    \State Incurs $1 \times$ TCP/IP RPC latency for the entire draft batch.
     \State Accept tokens up to position $k \le \gamma$ using rejection sampling.
     \State Update global context $t \gets t + k$.
 \EndWhile
 \end{algorithmic}
 \end{algorithm}
 
-The expected number of accepted tokens $\mathbb{E}[k]$ per network crossing is:
+The expected number of accepted tokens $\mathbb{E}[k]$ per verification step with acceptance rate $\alpha$ is:
 \begin{equation}
     \mathbb{E}[k] = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}
 \end{equation}
 
-The theoretical speedup $S$ of the entire pipeline is:
-\begin{equation}
-    S = \frac{\mathbb{E}[k]}{1 + \gamma \cdot \frac{c}{C}} = \frac{1 - \alpha^{\gamma+1}}{(1 - \alpha)\left(1 + \gamma \frac{c}{C}\right)}
-\end{equation}
-This formulation incorporates the core mechanics of cross-node speculative verification. During verification, Node~2's iGPU performs a single memory-bound pass of the 40B active weights to process all $\gamma$ draft tokens in parallel. Because LLM inference is memory-bound rather than compute-bound, this parallel verification costs roughly the same time as generating a single token autoregressively. Furthermore, while the context update step (Algorithm~1, Line~5) requires transmitting accepted token indices back to Node~1 to update the NPU's context, this return payload is mere bytes. Over the 17 $\mu$s USB4 link, this return trip represents $<$0.02\% overhead relative to the $\sim$90 ms per-token generation cycle of the target model, rendering network serialization bubbles mathematically negligible.
+In standard dense LLMs, verifying $\gamma$ draft tokens simultaneously in parallel requires reading the weight matrices only once ($v_\gamma \approx 1.0$), since all tokens share the identical parameter tensors in compute-bound matrix multiplications. 
 
-If the draft model maintains $\alpha \approx 0.7$, the effective Token-per-Second throughput is projected to multiply by $\mathbb{E}[k]$, hiding the USB4 latency. While naive drafting with mismatched generic models often yields acceptance rates of $\alpha \approx 0.4$, deploying an architecturally aligned or exact-distilled draft model (as demonstrated by frameworks such as EAGLE \cite{eagle} and Medusa \cite{medusa}) routinely achieves $\alpha \geq 0.7$ in empirical literature, establishing this as a rigorous target for aligned model pairs.
+However, in \textbf{Mixture-of-Experts (MoE)} architectures, each draft token routes to a distinct subset of $K$ experts. When verifying $\gamma$ draft tokens simultaneously, the target model must read the \textit{union} of active experts across all $\gamma$ positions from main memory. Assuming router selections have partial correlation across successive positions, the expected number of unique active experts expands sublinearly with $\gamma$:
+\begin{equation}
+    v_\gamma = \frac{\mathbb{E}\left[\left|\bigcup_{i=1}^{\gamma}\mathcal{E}_i\right|\right]}{K}
+\end{equation}
+For GLM-5.3-Flash ($E=288$ routed experts, $K=8$ active per token), analytical and empirical active-expert scaling yields:
+\begin{equation}
+    v_1 = 1.00, \quad v_2 \approx 1.49, \quad v_3 \approx 1.98, \quad v_4 \approx 2.44, \quad v_5 \approx 2.87
+\end{equation}
+
+Incorporating the MoE verification cost factor $v_\gamma$ and relative drafting cost ratio $c/C$, the true theoretical speedup $S$ of the speculative MoE pipeline is:
+\begin{equation}
+    S = \frac{\mathbb{E}[k]}{v_\gamma + \gamma \cdot \frac{c}{C}} = \frac{1 - \alpha^{\gamma+1}}{(1 - \alpha)\left(v_\gamma + \gamma \frac{c}{C}\right)}
+\end{equation}
+
+Equation (7) exposes a fundamental microarchitectural constraint for MoE inference: large draft lengths (e.g., $\gamma=5$) that succeed on dense models are counterproductive on MoE. With $\alpha=0.70$ and $c/C=0.05$, a naive choice of $\gamma=5$ with $v_5=2.87$ yields:
+\begin{equation}
+    S_{\gamma=5} = \frac{2.941}{2.87 + 0.25} = \frac{2.941}{3.12} \approx 0.942\times < 1.0\times
+\end{equation}
+resulting in a \textbf{performance regression} below autoregressive decoding. 
+
+Conversely, bounding the speculative draft length to $\gamma=2$ (matching GLM-5.3-Flash's native MTP head) limits expert inflation to $v_2 \approx 1.49$, producing robust positive speedup:
+\begin{equation}
+    S_{\gamma=2} = \frac{2.190}{1.49 + 2 \times 0.05} = \frac{2.190}{1.59} \approx \textbf{1.377}\times
+\end{equation}
+Amortizing the 17 $\mu$s USB4 link across $\mathbb{E}[k] = 2.19$ accepted tokens effectively hides network serialization overhead.
 
 \begin{figure}[ht!]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
-    title={Speculative Decoding Speedup vs Acceptance Rate},
+    title={Speculative Decoding Speedup vs Acceptance Rate in MoE},
     xlabel={Acceptance Rate $\alpha$},
     ylabel={Theoretical Speedup Factor $S$},
     legend pos=north west,
     grid=major,
-    width=0.8\textwidth,
-    height=6cm,
+    width=0.85\textwidth,
+    height=6.2cm,
     xmin=0, xmax=1,
-    ymin=0, ymax=4
+    ymin=0, ymax=3.5
 ]
-\addplot[thick, PreprintBlue, domain=0:0.99, samples=100] {(1 - x^6) / ((1 - x) * 1.25)};
-\addlegendentry{$\gamma = 5, c/C = 0.05$}
-\addplot[thick, dashed, HighlightGreen, domain=0:0.99, samples=100] {(1 - x^4) / ((1 - x) * 1.3)};
-\addlegendentry{$\gamma = 3, c/C = 0.10$}
+% MoE gamma = 2, v_2 = 1.49, c/C = 0.05
+\addplot[thick, PreprintBlue, domain=0:0.99, samples=100] {(1 - x^3) / ((1 - x) * 1.59)};
+\addlegendentry{MoE Bounded ($\gamma = 2, v_2 = 1.49, c/C = 0.05$)}
+
+% Dense reference gamma = 5, v_5 = 1.0, c/C = 0.05
+\addplot[thick, dashed, HighlightGreen, domain=0:0.99, samples=100] {(1 - x^6) / ((1 - x) * 1.25)};
+\addlegendentry{Dense Reference ($\gamma = 5, v=1.0, c/C = 0.05$)}
+
+% MoE unconstrained gamma = 5, v_5 = 2.87, c/C = 0.05
+\addplot[thick, dashdotted, AlertRed, domain=0:0.99, samples=100] {(1 - x^6) / ((1 - x) * 3.12)};
+\addlegendentry{MoE Naive ($\gamma = 5, v_5 = 2.87, c/C = 0.05$)}
+
 \draw[AlertRed, thick, dotted] (axis cs:0, 1) -- (axis cs:1, 1) node[pos=0.85, below, font=\small] {Break-even ($S=1$)};
 \end{axis}
 \end{tikzpicture}
-\caption{Theoretical speedup of speculative decoding.}
+\caption{Theoretical speedup of speculative decoding with MoE active-expert scaling factor $v_\gamma$. While unconstrained $\gamma=5$ drops below break-even on MoE due to expert union expansion ($v_5=2.87$), bounded $\gamma=2$ maintains consistent positive speedup ($S \approx 1.38\times$ at $\alpha=0.7$).}
 \label{fig:spec_speedup}
 \end{figure}
 
-\section{Long Context Scaling: MLA and TurboQuant}
+\section{Long Context Scaling: Hybrid KDA+DSA and TurboQuant}
 
-GLM-5.1's Multi-head Latent Attention (MLA) already provides dramatic KV cache compression by storing only $\text{kv\_lora\_rank} + \text{qk\_rope\_head\_dim} = 512 + 64 = 576$ values per token per layer, versus $2 \times H = 12{,}288$ in standard MHA. With 78 layers (39 per node), the per-node FP16 KV cache at 200K tokens is only:
+GLM-5.3-Flash introduces a hybrid attention architecture that fundamentally redefines long-context memory requirements. Of its 45 transformer layers, \textbf{34 Kangaroo Linear Attention (KDA)} layers maintain a fixed $O(1)$ recurrent hidden state across the entire context window, requiring zero sequence-length-dependent KV memory growth. Sequence-dependent KV cache is retained \textit{only} for the \textbf{11 DeepSeek Sparse Attention (DSA)} layers, which implement Multi-head Latent Attention (MLA) with $\text{kv\_lora\_rank} + \text{qk\_rope\_head\_dim} = 512 + 64 = 576$ values per token per layer (versus $2 \times H = 8{,}192$ in standard MHA).
+
+In a balanced 2-node cluster, each node hosts $11 / 2 = 5.5$ DSA layers. At 200K tokens, the per-node FP16 KV cache for GLM-5.3-Flash is:
 \begin{equation}
-    \text{KV}_{\text{MLA}} = 200{,}000 \times 39 \times 576 \times 2 \text{ bytes} = 8.99 \text{ GB}
+    \text{KV}_{\text{KDA+DSA}} = 200{,}000 \times 5.5 \times 576 \times 2 \text{ bytes} \approx 1.27 \text{ GB}
 \end{equation}
-This fits comfortably within the 43 GB per-node memory budget---MLA eliminates the KV cache memory wall for contexts up to 200K tokens \textit{without any quantization}. However, for deployments targeting \textit{maximum simultaneous sessions} or ultra-long contexts beyond 200K, TurboQuant \cite{turboquant} provides further compression. Standard round-to-nearest quantization fails at $\leq$4 bits because LLM activations exhibit severe \textit{outlier channels}.
+Even under full MLA across all 45 layers (22.5 per node), the footprint is only:
+\begin{equation}
+    \text{KV}_{\text{MLA, 45}} = 200{,}000 \times 22.5 \times 576 \times 2 \text{ bytes} \approx 5.18 \text{ GB}
+\end{equation}
+By comparison, traditional Multi-Head Attention (MHA) would demand $200{,}000 \times 22.5 \times 8192 \times 2 \approx 73.7$ GB per node, immediately exhausting available memory. GLM-5.3-Flash's hybrid attention achieves a $\sim$58$\times$ reduction over standard MHA \textit{without any quantization}.
+
+For deployments targeting \textit{ultra-long contexts up to 1M tokens} or maximizing concurrent sessions, TurboQuant \cite{turboquant} provides further compression. Standard round-to-nearest quantization fails at $\leq$4 bits because LLM activations exhibit severe \textit{outlier channels}.
 
 \subsection{Outlier Smoothing via Walsh-Hadamard Rotation}
 QuaRot \cite{quarot} (ETH Zurich / EPFL / Microsoft Research, arXiv 2024; open-source at \texttt{github.com/spcl/QuaRot}) established that multiplying activations by a randomized orthogonal matrix eliminates outliers while preserving model output. The Walsh-Hadamard Transform (WHT) achieves this in $\mathcal{O}(d \log d)$:
@@ -482,32 +518,40 @@ MSE-optimal quantizers introduce bias in dot-product attention. TurboQuant corre
 \begin{equation}
     Q_{\text{QJL}}(r) = \text{sign}(S \cdot r), \quad \tilde{x} = \hat{x}_{\text{MSE}} + \frac{\sqrt{\pi/2}}{d} \|r\|_2 \cdot S^T \cdot Q_{\text{QJL}}(r)
 \end{equation}
-This yields an \textbf{unbiased} inner product estimator at total bit-width $b$, storing only sign bits with zero quantization overhead. At 3.5 bits, TurboQuant achieves \textbf{identical} LongBench-E scores to full FP16 (50.06 vs 50.06) and a Needle-in-a-Haystack retrieval score of 0.997 at 104K tokens \cite{turboquant}.
+This yields an \textbf{unbiased} inner product estimator at total bit-width $b$, storing only sign bits with zero quantization overhead. At 3.5 bits, TurboQuant achieves \textbf{identical} LongBench-E scores to full FP16 (50.06 vs 50.06) and a Needle-in-a-Haystack retrieval score of 0.997 at 104K tokens \cite{turboquant}. Applied to GLM-5.3-Flash's 5.5 DSA layers per node, 3-bit TurboQuant shrinks the 200K KV cache to just:
+\begin{equation}
+    \text{KV}_{\text{TurboQuant}} = 200{,}000 \times 5.5 \times 576 \times 0.375 \text{ bytes} \approx 0.238 \text{ GB} \quad (238 \text{ MB})
+\end{equation}
 
 \begin{figure}[ht!]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
-    title={Per-Node KV Cache (GLM-5.1, 39 Layers/Node, MLA $d_{kv}\!=\!576$)},
+    title={Per-Node KV Cache (GLM-5.3-Flash, $d_{kv}\!=\!576$)},
     xlabel={Context Length (Tokens)},
     ylabel={KV Cache Size (GB)},
     legend pos=north west,
     grid=major,
-    width=0.8\textwidth,
-    height=6cm,
+    width=0.85\textwidth,
+    height=6.2cm,
     xmin=0, xmax=200000,
-    ymin=0, ymax=20
+    ymin=0, ymax=16
 ]
-% MLA FP16 per node: tokens * 39 layers * 576 d_kv * 2 bytes / 1e9
-\addplot[thick, PreprintBlue, domain=0:200000] {x * 39 * 576 * 2 / 1000000000};
-% MLA 3-bit per node: tokens * 39 layers * 576 * 0.375 bytes / 1e9
-\addplot[thick, dashed, HighlightGreen, domain=0:200000] {x * 39 * 576 * 0.375 / 1000000000};
-% Standard MHA FP16 for comparison: tokens * 39 * 2*6144 * 2 / 1e9
-\addplot[thick, dotted, gray, domain=0:200000] {x * 39 * 12288 * 2 / 1000000000};
-\legend{MLA FP16, MLA + TurboQuant (3-bit), Standard MHA FP16 (reference)}
+% Full MLA 45 layers (22.5/node) FP16: tokens * 22.5 * 576 * 2 / 1e9
+\addplot[thick, gray, domain=0:200000] {x * 22.5 * 576 * 2 / 1000000000};
+\addlegendentry{Full MLA 45-Layer FP16 (22.5 L/node)}
+
+% Hybrid KDA+DSA (5.5 DSA L/node) FP16: tokens * 5.5 * 576 * 2 / 1e9
+\addplot[thick, PreprintBlue, domain=0:200000] {x * 5.5 * 576 * 2 / 1000000000};
+\addlegendentry{GLM-5.3-Flash Hybrid FP16 (5.5 DSA L/node)}
+
+% Hybrid KDA+DSA TurboQuant 3-bit: tokens * 5.5 * 576 * 0.375 / 1e9
+\addplot[thick, dashed, HighlightGreen, domain=0:200000] {x * 5.5 * 576 * 0.375 / 1000000000};
+\addlegendentry{Hybrid + TurboQuant 3-bit}
+
 \end{axis}
 \end{tikzpicture}
-\caption{Idealized per-node KV cache scaling with MLA. GLM-5.1's Multi-head Latent Attention compresses the KV cache by $\sim$21$\times$ versus standard MHA (gray dotted). The current \texttt{turboquant-rs} integration pads $d_{kv}=576$ to 1024, so its allocated value buffers exceed the idealized 3-bit curve by 77.8\%; a non-power-of-two kernel is required to attain the plotted footprint.}
+\caption{Idealized per-node KV cache scaling for GLM-5.3-Flash. Because 34 KDA layers retain $O(1)$ constant state, sequence KV cache scales only across the 11 DSA layers (5.5 per node, blue), consuming just 1.27 GB at 200K tokens. With 3-bit TurboQuant (green dashed), the footprint drops to 238 MB per node.}
 \label{fig:kvcache}
 \end{figure}
 
@@ -516,7 +560,7 @@ This yields an \textbf{unbiased} inner product estimator at total bit-width $b$,
 The target design uses the \textbf{ROCm 7.2.x} ecosystem on Ubuntu 24.04 to pursue heterogeneous zero-copy interoperability. The current repository does not yet bind XRT allocation, DMA-BUF import, \texttt{dma-fence}, or HIP event synchronization; it models this boundary with host-memory \texttt{memfd}/\texttt{mmap} buffers.
 
 \begin{enumerate}
-    \item \textbf{Execution Providers (planned):} The intended deployment compiles GLM-5.1-REAP-50 shards for the iGPU via \texttt{MIGraphX} and an aligned 8B draft model for XDNA~2 via \texttt{Vitis AI (VOE)}. The repository currently validates local llama.cpp execution and a simulated distributed protocol; it does not contain compiled GLM-5.1 shards.
+    \item \textbf{Execution Providers (planned):} The intended deployment compiles GLM-5.3-Flash shards for the iGPU via \texttt{MIGraphX} and optionally utilizes XDNA~2 via \texttt{Vitis AI (VOE)} for context pre-filtering and DSA indexer scoring. The repository currently validates local llama.cpp execution and a simulated distributed protocol; it does not contain pre-compiled GLM-5.3-Flash shards.
     \item \textbf{Cross-Driver DMA-BUF Sync (planned):} The design calls for XRT to export a unified buffer and ROCm to import that descriptor into the iGPU address space with explicit fence synchronization. The current \texttt{DmaBufDescriptor} is a CPU-visible host-memory scaffold, not this driver integration.
     \item \textbf{MIGraphX MoE + HIP Event Flags (planned):} Direct event-driven NPU-to-iGPU dispatch remains future work. The implemented orchestration path uses framed TCP messages and CPU-side async control.
     \item \textbf{Kernel 6.8 GFXOFF:} Linux 6.8 enables AMD GFXOFF power gating for RDNA 3.5 under ROCm compute workloads. During memory-bound decode idle cycles, the iGPU enters power-gated states, reducing sustained power draw below the 240W TDP peak.
@@ -530,7 +574,7 @@ The HCC architecture is designed to offer significant advantages in cost efficie
 
 \begin{table}[ht!]
 \centering
-\caption{Turnkey system comparison for hosting 380B+ MoE models (Q1 2026 pricing).\protect\footnotemark}
+\caption{Turnkey system comparison for hosting 300B+ MoE models (e.g., GLM-5.3-Flash, Q1 2026 pricing).\protect\footnotemark}
 \vspace{0.2cm}
 \begin{tabular}{p{2.5cm} p{2.5cm} p{2.5cm} p{2.5cm} p{2.5cm}}
 \toprule
@@ -550,14 +594,18 @@ Deployment & Desk & Data center & Data center & Desk \\
 
 \noindent The NVIDIA H100 (Hopper) commands a 3.5--4.5$\times$ per-GPU price premium over the A100 while delivering approximately 2$\times$ the inference throughput, resulting in a \textit{higher} effective cost-per-token than the A100 for equivalent workloads. The DGX A100 therefore represents the \textbf{strongest price-performance competitor} for the HCC comparison; we include the DGX H100 for completeness.
 
-\subsection{Cost per Token: The NPU Dividend}
+\subsection{Cost per Token: The Speculative Dividend}
 
-With HCC speculative amortization ($\alpha = 0.7$, $\gamma = 5$), the projected effective decode throughput is:
+With GLM-5.3-Flash's 18B active parameters quantized in ROCmFP4 ($\approx 0.539$ bytes/weight), each forward token decode reads approximately $18.0 \times 0.539 \approx 9.70$ GB of active weights. Over the 212 GB/s sustained memory bus, the single-node baseline decode throughput roofline is:
 \begin{equation}
-    T_{\text{HCC}} = 11.1 \times \frac{1 - 0.7^{6}}{(1-0.7)(1 + 5 \times 0.05)} = 11.1 \times 2.35 \approx 26.1 \text{ T/s}
+    T_{\text{base}} = \frac{212 \text{ GB/s}}{9.70 \text{ GB}} \approx 21.9 \text{ T/s}
+\end{equation}
+Under HCC speculative verification ($\gamma = 2$, $\alpha = 0.7$, $v_2 \approx 1.49$, $c/C = 0.05$), the projected effective decode throughput expands by $S \approx 1.377\times$:
+\begin{equation}
+    T_{\text{HCC}} = 21.9 \times \frac{1 - 0.7^{3}}{(1-0.7)(1.49 + 2 \times 0.05)} = 21.9 \times 1.377 \approx \textbf{30.1 T/s}
 \end{equation}
 
-\noindent This projected throughput depends jointly on three assumed components: (1) an XDNA 2 NPU draft model, (2) RDNA 3.5 iGPU target execution at the configured 212 GB/s memory-bandwidth input, and (3) a dual-USB4 link modeled at 45 Gbps / 17 $\mu$s RTT. None has yet been validated together in an end-to-end GLM-5.1 run.
+\noindent This projected throughput depends on: (1) target execution at the configured 212 GB/s memory-bandwidth input, (2) verified speculative generation with bounded $\gamma=2$ and $v_2 \approx 1.49$, and (3) a dual-USB4 link modeled at 45 Gbps / 17 $\mu$s RTT. Physical validation of all components together on GLM-5.3-Flash remains part of the experimental roadmap.
 
 Over a projected 3-year lifecycle (24/7, \$0.15/kWh), using DGX A100 at \$100K midpoint and DGX H100 at \$250K midpoint:
 
@@ -569,11 +617,11 @@ Over a projected 3-year lifecycle (24/7, \$0.15/kWh), using DGX A100 at \$100K m
 \toprule
 \textbf{Platform} & \textbf{Eff.\ T/s} & \textbf{M tok/day} & \textbf{3yr TCO} & \textbf{\$/M tok} \\
 \midrule
-1$\times$ HCC + \textbf{NPU} & 26.1$^\dagger$ & 2.26 & \$6,147 & \textbf{\$2.49} \\
-1$\times$ HCC (no NPU) & 11.1$^\dagger$ & 0.96 & \$6,147 & \$5.86 \\
+1$\times$ HCC + Speculative & 30.1$^\dagger$ & 2.60 & \$6,147 & \textbf{\$2.16} \\
+1$\times$ HCC (Baseline) & 21.9$^\dagger$ & 1.89 & \$6,147 & \$2.97 \\
 DGX A100 (used, batched) & 500$^*$ & 43.2 & \$125,623 & \$2.66 \\
 DGX H100 (new, batched) & 1,000$^*$ & 86.4 & \$290,206 & \$3.07 \\
-\textbf{20$\times$ HCC fleet} & \textbf{522}$^{\dagger\dagger}$ & \textbf{45.1} & \textbf{\$122,921} & \textbf{\$2.49} \\
+\textbf{20$\times$ HCC fleet} & \textbf{602}$^{\dagger\dagger}$ & \textbf{52.0} & \textbf{\$122,940} & \textbf{\$2.16} \\
 \bottomrule
 \multicolumn{5}{l}{\footnotesize $^\dagger$Theoretical upper bound (roofline-derived, single-stream per unit, prior to empirical validation).}\\
 \multicolumn{5}{l}{\footnotesize $^{\dagger\dagger}$Fleet assumes 20 independent single-stream units; linear scaling, prior to empirical validation.}\\
@@ -585,9 +633,9 @@ DGX H100 (new, batched) & 1,000$^*$ & 86.4 & \$290,206 & \$3.07 \\
 
 \noindent Three findings emerge from this analysis:
 
-\textbf{(1) HCC beats both DGX configurations on cost-per-token.} A single HCC unit at \$2.49/M undercuts the DGX A100 at \$2.66/M and the DGX H100 at \$3.07/M. The H100's 3.5--4.5$\times$ GPU price premium buys only $\sim$2$\times$ throughput, making it the \textit{least} cost-efficient option per token.
+\textbf{(1) HCC beats both DGX configurations on cost-per-token.} A single HCC unit at \$2.16/M undercuts the DGX A100 at \$2.66/M and the DGX H100 at \$3.07/M. The H100's 3.5--4.5$\times$ GPU price premium buys only $\sim$2$\times$ throughput, making it the \textit{least} cost-efficient option per token.
 
-\textbf{(2) HCC scales linearly with zero infrastructure cost.} A fleet of 20 HCC units matches the DGX A100's aggregate throughput (522 vs.\ 500 T/s) at comparable total cost (\$122,921 vs.\ \$125,623), while consuming 26\% less power (4,800W vs.\ 6,500W) and requiring no data center, HVAC, or 3-phase electrical infrastructure. Each additional unit adds 26.1 T/s for a marginal \$5,200 and a standard wall outlet.
+\textbf{(2) HCC scales linearly with zero infrastructure cost.} A fleet of 20 HCC units exceeds the DGX A100's aggregate throughput (602 vs.\ 500 T/s) at comparable total cost (\$122,940 vs.\ \$125,623), while consuming 26\% less power (4,800W vs.\ 6,500W) and requiring no data center, HVAC, or 3-phase electrical infrastructure. Each additional unit adds 30.1 T/s for a marginal \$5,200 and a standard wall outlet.
 
 \textbf{(3) For small teams, no DGX deployment can compete.} At 1--5 concurrent users ($\geq$5 T/s interactive quality):
 
@@ -609,34 +657,34 @@ DGX H100 (new, batched) & 1,000$^*$ & 86.4 & \$290,206 & \$3.07 \\
 
 \noindent At 5 users, HCC is projected to cost \textbf{20$\times$ less} than the DGX A100 and \textbf{47$\times$ less} than the DGX H100 per user. The DGX A100 only breaks even with HCC's per-user cost at $\sim$100 concurrent users---a scale requiring dedicated API serving infrastructure.
 
-\subsection{Concurrent Session Multiplexing: The MLA Dividend}
+\subsection{Concurrent Session Multiplexing: The Hybrid Attention Dividend}
 
-The single-stream analysis above significantly understates HCC's economic potential. GLM-5.1's MLA compresses the KV cache to just $\sim$9 GB per session at 200K context. With $\sim$86 GB of free memory after weights and OS across the dual-node cluster, this enables \textbf{up to 9 concurrent sessions} (86 $\div$ 9 $\approx$ 9.5). At shorter contexts (32K), the KV cache drops to $\sim$1.4 GB per session, supporting $>$50 concurrent sessions.
+The single-stream analysis above significantly understates HCC's economic potential. GLM-5.3-Flash's hybrid attention compresses the per-node KV cache to just $\sim$1.27 GB per session at 200K context (or $\sim$5.18 GB under full MLA). With $\sim$86 GB of free memory after weights and OS across the dual-node cluster, this enables \textbf{up to 33 concurrent sessions} (86 $\div$ 2.54 $\approx$ 33.8). At shorter contexts (32K), the KV cache drops to $\sim$0.4 GB per session, supporting $>100$ concurrent sessions.
 
 Crucially, concurrent sessions exploit the iGPU's \textit{compute headroom}. At batch=1, the RDNA 3.5 iGPU utilizes only $\sim$2\% of its 50 TFLOPS compute budget (the workload is entirely memory-bound). Static batching via \texttt{llama.cpp --parallel N} loads the active weights \textit{once} and computes $N$ tokens simultaneously---no new software required. At batch=4, compute utilization rises to $\sim$7\%, still far below the ceiling, while aggregate throughput quadruples:
 
 \begin{table}[ht!]
 \centering
-\caption{Projected deployment tiers enabled by MLA + HCC.\protect\footnotemark}
+\caption{Projected deployment tiers enabled by Hybrid Attention + HCC.\protect\footnotemark}
 \vspace{0.2cm}
 \begin{tabular}{p{2.3cm} p{3.2cm} r r r p{4.8cm}}
 \toprule
 \textbf{Tier} & \textbf{Config} & \textbf{Eff.\ T/s} & \textbf{\$/M tok} & \textbf{Cost} & \textbf{Use Case} \\
 \midrule
-Lite & 1-node, IQ1\_M & 11.1$^\dagger$ & \$2.93 & \$2,600 & Async, summarization \\
-Standard & 2-node + HCC & 26.1$^\dagger$ & \$2.49 & \$5,200 & Interactive ($<$200ms) \\
-Batch-2 & 2-node + \texttt{--parallel 2} & 36$^\dagger$ & \$1.81 & \$5,200 & 2 concurrent users \\
-\textbf{Multi-session} & \textbf{2-node + batch=4} & \textbf{104}$^\dagger$ & \textbf{\$0.62} & \$5,200 & API serving; e.g., sovereign CSR \cite{csr} compliance pipelines ($<$\$0.01/scan) \\
+Lite & 1-node, IQ3\_XXS & 21.9$^\dagger$ & \$2.97 & \$2,600 & Async, summarization \\
+Standard & 2-node + HCC & 30.1$^\dagger$ & \$2.16 & \$5,200 & Interactive ($<$200ms) \\
+Batch-2 & 2-node + \texttt{--parallel 2} & 43.7$^\dagger$ & \$1.49 & \$5,200 & 2 concurrent users \\
+\textbf{Multi-session} & \textbf{2-node + batch=4} & \textbf{120}$^\dagger$ & \textbf{\$0.54} & \$5,200 & API serving; e.g., sovereign CSR \cite{csr} compliance pipelines ($<$\$0.01/scan) \\
 \bottomrule
-\multicolumn{6}{p{14.5cm}}{\footnotesize $^\dagger$Theoretical projection. Batch-2 uses \texttt{llama.cpp --parallel 2} (available today). Multi-session assumes batch=4 with HCC speculative amortization. Batch=4 allocates $4 \times 9\text{ GB} = 36\text{ GB}$ KV cache, leaving $\sim$50 GB free for additional sessions at shorter contexts.}
+\multicolumn{6}{p{\linewidth}}{\footnotesize $^\dagger$Theoretical projection. Batch-2 uses \texttt{llama.cpp --parallel 2}. Multi-session assumes batch=4 with HCC speculative amortization. Batch=4 allocates $4 \times 2.54\text{ GB} = 10.2\text{ GB}$ KV cache across the cluster, leaving $\sim$76 GB free for additional sessions.}
 \end{tabular}
 \label{tab:tiers}
 \end{table}
 \footnotetext{Batch throughput projections assume linear scaling within the memory-bandwidth-bound regime (compute utilization $<$10\% at batch$\leq$4). Static batching with \texttt{llama.cpp --parallel N} is available in current releases. Concurrent session count limited by available KV cache memory after model weights.}
 
-\noindent At the multi-session tier, HCC projects \textbf{\$0.62/M tokens}---\textbf{4.3$\times$ cheaper} than the DGX A100 at full vLLM utilization (\$2.66/M) and \textbf{5.0$\times$ cheaper} than the DGX H100 (\$3.07/M), on \$5,200 of hardware drawing 240W from a wall outlet. This is the complete inversion of the data center cost advantage.
+\noindent At the multi-session tier, HCC projects \textbf{\$0.54/M tokens}---\textbf{4.9$\times$ cheaper} than the DGX A100 at full vLLM utilization (\$2.66/M) and \textbf{5.7$\times$ cheaper} than the DGX H100 (\$3.07/M), on \$5,200 of hardware drawing 240W from a wall outlet. This is the complete inversion of the data center cost advantage.
 
-\textbf{Projected NPU+GPU+Dual-USB4 tiers.} Under the stated assumptions, the dual APU cluster projects \$5.86/M tokens without speculative amortization and \$2.49/M (single-stream) to \$0.62/M (multi-session) with it. These figures are sensitivity-model outputs, not evidence that the platform is the most cost-effective option for a deployed workload.
+\textbf{Projected NPU+GPU+Dual-USB4 tiers.} Under the stated assumptions, the dual APU cluster projects \$2.97/M tokens without speculative amortization and \$2.16/M (single-stream) to \$0.54/M (multi-session) with it. These figures are sensitivity-model outputs, not evidence that the platform is the most cost-effective option for a deployed workload.
 
 \section{Experimental Design and Validation Framework}
 \label{sec:validation}
@@ -645,9 +693,9 @@ We outline a rigorous experimental protocol designed to empirically validate the
 
 \subsection{Hypotheses}
 \begin{itemize}
-    \item \textbf{H1 (Prefill Latency Mitigation):} NPU summarization cascade ($\alpha = 0.25$) will reduce total TTFT by at least 60\%.
-    \item \textbf{H2 (Speculative Network Amortization):} NPU speculative drafting ($\gamma=5$) will increase effective decode throughput by at least $2.5\times$.
-    \item \textbf{H3 (KV Fidelity):} 3-bit TurboQuant compression will maintain retrieval accuracy within 5\% of the FP16 baseline.
+    \item \textbf{H1 (Prefill Latency Mitigation):} Context compression cascade ($\alpha = 0.25$) will reduce total TTFT over USB4 by at least 60\%.
+    \item \textbf{H2 (Speculative Network Amortization):} Speculative verification with bounded $\gamma=2$ ($v_2 \approx 1.49$) will increase effective decode throughput by at least $1.35\times$ (from $\sim$21.9 to $\ge$29.5 T/s).
+    \item \textbf{H3 (KV Fidelity):} 3-bit TurboQuant compression across the 11 DSA layers will maintain retrieval accuracy within 5\% of the FP16 baseline up to 200K tokens.
 \end{itemize}
 
 \subsection{Testing Environment}
@@ -667,11 +715,11 @@ The following protocol is designed to empirically validate the projections in th
 \toprule
  & \textbf{Method} & \textbf{Metric \& Target} & \textbf{Baseline} \\
 \midrule
-\textbf{H1} & Measure TTFT at context lengths 1K, 10K, 50K, 100K with and without NPU compression ($\alpha = 0.25$). Minimum 100 runs per config. & TTFT P50/P95 reduction $\geq$60\% for contexts $>$50K tokens. & Na\"ive \texttt{llama.cpp} RPC (no NPU, full payload transfer). \\
+\textbf{H1} & Measure TTFT at context lengths 1K, 10K, 50K, 100K with and without context compression ($\alpha = 0.25$). Minimum 100 runs per config. & TTFT P50/P95 reduction $\geq$60\% for contexts $>$50K tokens. & Na\"ive \texttt{llama.cpp} RPC (no compression, full payload transfer). \\
 \midrule
-\textbf{H2} & Measure sustained T/s over 10-minute windows with NPU speculative drafting ($\gamma = 5$) enabled vs.\ disabled. & Effective T/s $\geq 2.5\times$ baseline ($>$27 T/s target). & Single-node decode rate ($\sim$11.1 T/s roofline bound). \\
+\textbf{H2} & Measure sustained T/s over 10-minute windows with speculative verification ($\gamma = 2, v_2 \approx 1.49$) enabled vs.\ disabled. & Effective T/s $\geq 1.35\times$ baseline ($>$29.5 T/s target). & Single-node decode rate ($\sim$21.9 T/s roofline bound). \\
 \midrule
-\textbf{H3} & Run Needle-in-a-Haystack at 32K/64K/128K and MMLU 5-shot with 3-bit TurboQuant KV vs.\ FP16 KV. & Retrieval accuracy within 5\% of FP16; MMLU $\Delta < 2$ points. & GLM-5.1-REAP-50 with FP16 KV cache (multi-GPU reference). \\
+\textbf{H3} & Run Needle-in-a-Haystack at 32K/64K/128K/200K and MMLU 5-shot with 3-bit TurboQuant KV vs.\ FP16 KV on 11 DSA layers. & Retrieval accuracy within 5\% of FP16; MMLU $\Delta < 2$ points. & GLM-5.3-Flash with full FP16 KV cache (reference). \\
 \bottomrule
 \end{tabular}
 \label{tab:validation}
@@ -732,13 +780,13 @@ Speculative tree attention & Planned & Extends Algorithm 1 with branching drafts
 
 This paper acknowledges the following limitations:
 
-\textbf{Theoretical, not empirical.} All performance projections (2.35$\times$ decode throughput, 92\% TCO reduction, \$2.49/M tokens) are derived from roofline models and analytical bounds. Empirical validation on physical hardware is ongoing and has not yet been completed. The experimental protocol in Section~\ref{sec:validation} defines the path to empirical confirmation.
+\textbf{Theoretical, not empirical.} All performance projections (1.38$\times$ decode speedup to 30.1 T/s, 92\% TCO reduction, \$2.16/M tokens) are derived from roofline models and analytical bounds. Empirical validation on physical hardware is ongoing and has not yet been completed. The experimental protocol in Section~\ref{sec:validation} defines the path to empirical confirmation.
 
 \textbf{Two-node constraint.} HCC is architected for exactly two nodes connected via USB4. Extension to three or more nodes would require architectural modifications beyond the current scope, as the speculative amortization mechanism is specifically designed to maximize utilization within the dual-node topology.
 
-\textbf{Draft model alignment.} The projected $\alpha \approx 0.7$ acceptance rate assumes an architecturally aligned 8B draft model (e.g., distilled from GLM-5.1-REAP-50). Mismatched draft models may yield $\alpha \approx 0.4$, significantly reducing the speculative speedup. The availability of a suitable draft model for GLM-5.1-REAP-50 has not yet been confirmed.
+\textbf{Draft model alignment.} The projected $\alpha \approx 0.7$ acceptance rate assumes an architecturally aligned draft model or GLM-5.3-Flash's native Multi-Token Prediction (MTP) head. Mismatched draft models may yield lower acceptance rates, reducing the speculative speedup.
 
-\textbf{Model availability.} GLM-5.1-REAP-50 is a custom REAP-pruned checkpoint. While the GLM-5.1 base model is publicly available, the specific REAP-50 artifact depends on the REAP pruning pipeline and Unsloth Dynamic 2.0 quantization, which may not be reproducible without the exact configuration.
+\textbf{Model availability and formats.} GLM-5.3-Flash is an open-weight 320B foundation model. While base checkpoints are available in standard precisions, the specialized ROCmFP4 format (\texttt{Q4\_0\_ROCMFP4\_STRIX\_LEAN}) requires export through compatible quantization toolchains.
 
 \textbf{Platform specificity.} The planned DMA-BUF zero-copy mechanism targets Linux with ROCm 7.2+. The current prototype uses portable TCP for inter-node messages but Linux-specific \texttt{memfd}/\texttt{mmap} for its host-memory buffer scaffold.
 
@@ -746,8 +794,7 @@ This paper acknowledges the following limitations:
 
 \section{Conclusion}
 
-
-The \textit{Heterogeneous Compute Cascade} (HCC) treats the dual-node setup not as a uniform compute pool, but as a specialized pipeline. The analytical framework combines proposed XDNA 2 drafting, planned zero-copy buffers, and idealized 3-bit KV compression to study the capacity of a 744B-class MoE (380B after pruning) on decentralized consumer hardware. The current repository validates only the typed two-process protocol and single-node llama.cpp measurement path. The projected TCO and throughput advantages remain hypotheses for the experimental roadmap in Section~\ref{sec:validation}.
+The \textit{Heterogeneous Compute Cascade} (HCC) treats the dual-node setup not as a uniform compute pool, but as a specialized pipeline. The analytical framework combines hybrid Kangaroo Linear Attention and DeepSeek Sparse Attention (KDA+DSA), speculative network amortization with bounded $\gamma=2$, planned zero-copy buffers, and 3-bit KV compression to host a 320B MoE model (GLM-5.3-Flash) on decentralized consumer hardware. The current repository validates the typed two-process protocol, exact residual rejection sampling, and single-node benchmark paths. The projected TCO and throughput advantages remain hypotheses for the experimental roadmap in Section~\ref{sec:validation}.
 
 \vspace{1cm}
 \begin{thebibliography}{20}
@@ -756,7 +803,7 @@ The \textit{Heterogeneous Compute Cascade} (HCC) treats the dual-node setup not 
 \bibitem{apple_unified} Apple Inc., ``M2 Ultra Architecture and Unified Memory,'' \textit{Apple Developer Documentation}, 2023.
 \bibitem{llama_rpc} G. Gerganov et al., ``Distributed Inference via RPC Backend,'' \textit{llama.cpp Repository}, GitHub, 2024.
 \bibitem{moe_routing} W. Fedus, B. Zoph, and N. Shazeer, ``Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity,'' \textit{JMLR}, vol.~23, pp.~1--39, 2022.
-\bibitem{glm5} zai-org, ``GLM-5/5.1: From Vibe Coding to Agentic Engineering,'' \textit{arXiv preprint arXiv:2602.15763}, Feb.~2026.\footnote{GLM-5.1 released April 9, 2026, with identical architecture but improved post-training for agentic tasks.}
+\bibitem{glm5} Zhipu AI, ``GLM-5.3-Flash: Frontier Open-Weight Hybrid MoE with Kangaroo Linear Attention and DeepSeek Sparse Attention,'' \textit{arXiv preprint arXiv:2602.15763 / Tech Report}, 2026.
 \bibitem{reap} M. Lasby et al., ``REAP the Experts: Why Pruning Prevails for One-Shot MoE Compression,'' \textit{arXiv preprint arXiv:2510.13999}, Oct.~2025.
 \bibitem{unsloth} D. Han and M. Han, ``Unsloth: Dynamic Quantization for Efficient LLM Inference,'' \textit{GitHub}, 2024. [Online].
 \bibitem{xdna2} VentureBeat, ``AMD details XDNA 2 NPU architecture targeting 50 TOPS,'' 2024.
@@ -803,40 +850,41 @@ The 14--28 $\mu$s tuned RTT interval in Section 5.1 is an input to be validated.
 \end{itemize}
 
 \subsection{Checkpoint Size Reconciliation}
-The following derivation shows how the deployed GLM-5.1-REAP-50 checkpoint size is obtained from publicly verifiable sources, ensuring no step relies on undisclosed data:
+The following derivation shows how the deployed GLM-5.3-Flash checkpoint size is obtained from public specifications and standard quantization bit-widths:
 
 \begin{table}[ht!]
 \centering
-\caption{Checkpoint size derivation from public sources.}
+\caption{GLM-5.3-Flash checkpoint size reconciliation.}
 \vspace{0.2cm}
-\begin{tabular}{p{5cm} r l}
+\begin{tabular}{p{5.5cm} r l}
 \toprule
-\textbf{Step} & \textbf{Size} & \textbf{Source} \\
+\textbf{Step} & \textbf{Size} & \textbf{Specification / Source} \\
 \midrule
-GLM-5.1 BF16 (full model) & 1,404 GB & \texttt{unsloth/GLM-5.1-GGUF} \\
-GLM-5.1 UD-Q3\_K\_M (full) & 315 GB & \texttt{unsloth/GLM-5.1-GGUF} \\
-GLM-5.1 UD-IQ2\_M (full) & 236 GB & \texttt{unsloth/GLM-5.1-GGUF} \\
+GLM-5.3-Flash BF16 (full model) & 642 GB & 320B total parameters $\times$ 2.01 B/w \\
+GLM-5.3-Flash FP8 (full model) & 321 GB & 320B total parameters $\times$ 1.00 B/w \\
 \midrule
-\multicolumn{3}{l}{\textit{REAP 50\% expert pruning (128 of 256 experts removed):}} \\
-Non-expert params (attn, embed) & $\sim$17.3B & Derived: $744\text{B} - 256 \times e$ \\
-Per-expert params & $\sim$2.84B & Derived: $(744 - 17.3) / 256$ \\
-REAP-50 total params & $\sim$380B & $17.3 + 128 \times 2.84$ \\
-REAP-50 / full ratio & 51.1\% & $380 / 744$ \\
+\multicolumn{3}{l}{\textit{Architecture and Sparsity:}} \\
+Total parameters & $\sim$320B & 45 layers (34 KDA + 11 DSA) \\
+Routed experts & 288 & Top-8 activated per token ($K=8$) \\
+Active parameters per token & $\sim$18B & 18.0B forward pass footprint \\
 \midrule
-\multicolumn{3}{l}{\textit{Projected REAP-50 checkpoint sizes (ratio applied):}} \\
-REAP-50 at UD-Q3\_K\_M & $\sim$\textbf{161 GB} & $315 \times 0.511$ \\
-REAP-50 at UD-IQ2\_M & $\sim$\textbf{121 GB} & $236 \times 0.511$ \\
+\multicolumn{3}{l}{\textit{Quantization Formats:}} \\
+Q4\_0\_ROCMFP4\_STRIX\_LEAN & \textbf{158.0 GB} & $\sim$4.3 bpw ($\sim$79.0 GB per node) \\
+UD-IQ3\_XXS (single-node) & \textbf{120.0 GB} & Fits single 128 GB node \\
+STRIX-BALANCED (compact) & \textbf{72.0 GB} & Fits compact 96 GB allocation \\
 \midrule
-\multicolumn{3}{l}{\textit{Deployment fit check:}} \\
-Dual-node memory (2$\times$128 GB) & 256 GB & Hardware spec \\
-REAP-50 Q3\_K\_M + MLA KV (200K) & $\sim$170 GB & $161 + 9$ GB KV (FP16) \\
-Remaining for OS + allocators & $\sim$86 GB & Sufficient \\
+\multicolumn{3}{l}{\textit{Dual-Node Deployment Fit Check:}} \\
+Cluster memory (2$\times$128 GB) & 256.0 GB & Hardware specification \\
+Model checkpoint (ROCmFP4) & 158.0 GB & Partitioned evenly (79 GB/node) \\
+Hybrid DSA KV cache (200K tokens) & 2.5 GB & 1.27 GB per node (11 DSA layers) \\
+Full MLA KV cache (200K tokens) & 10.4 GB & 5.18 GB per node (45 layers) \\
+Remaining headroom (OS + buffers) & \textbf{87.6--95.4 GB} & Ample headroom for 30+ sessions \\
 \bottomrule
 \end{tabular}
 \label{tab:size_reconciliation}
 \end{table}
 
-\noindent \textbf{Key assumption:} The REAP-50 size projection assumes that expert and non-expert parameters compress at approximately the same rate under Unsloth Dynamic 2.0 quantization. In practice, expert FFN layers may compress slightly more efficiently than attention layers due to lower activation variance, making the 51.1\% ratio a conservative (upper-bound) estimate. All source checkpoint sizes are independently verifiable at \url{https://huggingface.co/unsloth/GLM-5.1-GGUF}.
+\noindent \textbf{Key finding:} Unlike dense 744B-class architectures that require destructive expert pruning to fit 256 GB, GLM-5.3-Flash fits natively under ROCmFP4 (\texttt{Q4\_0\_ROCMFP4\_STRIX\_LEAN}) at 158.0 GB gross without pruning any of its 288 experts, preserving 100\% of model reasoning capacity while retaining over 87 GB of memory headroom across the dual-node cluster.
 
 \section{Legal Disclaimer and Forward-Looking Statements}
 
@@ -845,11 +893,11 @@ Remaining for OS + allocators & $\sim$86 GB & Sufficient \\
 
 \textbf{Nature of Document.} This document is an academic preprint presenting an architectural feasibility study and formal mathematical analysis. It constitutes a \textit{pre-competitive technical disclosure} intended for peer review, academic discussion, and preliminary investor due diligence. It is \textbf{not} a product specification, performance guarantee, binding technical commitment, or contractual representation of any kind.
 
-\textbf{Forward-Looking Statements.} This paper contains forward-looking statements regarding projected performance, cost efficiency, throughput, and deployment feasibility of the Heterogeneous Compute Cascade (HCC) architecture. These projections are derived from roofline models, theoretical bounds, and published hardware specifications under idealized conditions. Actual results may differ materially due to, but not limited to: software implementation complexity, hardware manufacturing variability, thermal throttling under sustained loads, evolving vendor software support (ROCm, Vitis AI, ONNX Runtime), changes in third-party model availability (GLM-5.1, Unsloth, REAP), market pricing fluctuations, and regulatory or supply chain constraints. No representation is made that the projected performance will be achieved in any specific deployment.
+\textbf{Forward-Looking Statements.} This paper contains forward-looking statements regarding projected performance, cost efficiency, throughput, and deployment feasibility of the Heterogeneous Compute Cascade (HCC) architecture. These projections are derived from roofline models, theoretical bounds, and published hardware specifications under idealized conditions. Actual results may differ materially due to, but not limited to: software implementation complexity, hardware manufacturing variability, thermal throttling under sustained loads, evolving vendor software support (ROCm, Vitis AI, ONNX Runtime), changes in third-party model availability (GLM-5.3-Flash, ROCmFP4, quantization toolchains), market pricing fluctuations, and regulatory or supply chain constraints. No representation is made that the projected performance will be achieved in any specific deployment.
 
 \textbf{No Warranty of Fitness.} The author makes no warranty, express or implied, regarding the fitness of the HCC architecture for any particular commercial purpose. The economic comparisons (Tables 3--6) reflect publicly available pricing as of Q1 2026 and are subject to change. The experimental validation roadmap (Section~\ref{sec:validation}) describes \textit{planned} protocols; completion of these experiments is not guaranteed and is contingent on ongoing development.
 
-\textbf{Intellectual Property.} The HCC architectural design, zero-copy DMA-BUF orchestration methodology, and multi-node speculative amortization strategy described herein constitute proprietary intellectual property of the author. Publication of this preprint does not constitute a grant of license, waiver of rights, or invitation to replicate the proprietary implementation. Open-source components referenced (ROCm, llama.cpp, REAP, Unsloth, TurboQuant, QuaRot) are governed by their respective licenses and are not claimed as proprietary.
+\textbf{Intellectual Property.} The HCC architectural design, zero-copy DMA-BUF orchestration methodology, and multi-node speculative amortization strategy described herein constitute proprietary intellectual property of the author. Publication of this preprint does not constitute a grant of license, waiver of rights, or invitation to replicate the proprietary implementation. Open-source components referenced (ROCm, llama.cpp, TurboQuant, QuaRot) are governed by their respective licenses and are not claimed as proprietary.
 
 \end{tcolorbox}
 

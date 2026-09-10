@@ -222,7 +222,7 @@ fn default_true() -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeculativeConfig {
-    /// Draft length γ (paper: 5).
+    /// Draft length γ (paper: 5, MoE bounded: 2).
     pub draft_len: usize,
     /// Target acceptance rate α (paper: 0.7 with aligned draft).
     pub acceptance_rate: f64,
@@ -230,6 +230,13 @@ pub struct SpeculativeConfig {
     pub draft_cost_ratio: f64,
     /// Draft model size in params (paper: 8B).
     pub draft_params_b: f64,
+    /// MoE verification cost factor v_γ (1.0 for dense, 1.49 for γ=2 MoE, 2.87 for γ=5).
+    #[serde(default = "default_v_gamma")]
+    pub v_gamma: f64,
+}
+
+fn default_v_gamma() -> f64 {
+    1.49
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -312,26 +319,27 @@ impl Default for HccConfig {
                 memory_bw_gbs: 212.0,
             },
             model: ModelConfig {
-                model_name: "GLM-5.1-REAP-50".into(),
-                checkpoint_path: "/models/glm-5.1-reap-50-udq3km".into(),
-                total_params_b: 380.0,
-                checkpoint_size_gb: 161.0,
-                hidden_size: 6144,
-                num_layers: 78,
-                num_experts: 128,
+                model_name: "GLM-5.3-Flash".into(),
+                checkpoint_path: "/models/glm-5.3-flash/glm-5.3-flash-q4_0_rocmfp4_strix_lean.gguf".into(),
+                total_params_b: 320.0,
+                checkpoint_size_gb: 158.0,
+                hidden_size: 4096,
+                num_layers: 45,
+                num_experts: 288,
                 top_k: 8,
-                active_params_b: 40.0,
-                bytes_per_weight: 0.48,
-                // weight_read_gb removed: computed as active_params_b * bytes_per_weight
+                active_params_b: 18.0,
+                bytes_per_weight: 0.539,
+                // weight_read_gb: active_params_b * bytes_per_weight ≈ 9.70 GB
                 kv_lora_rank: 512,
                 qk_rope_head_dim: 64,
             },
             speculative: SpeculativeConfig {
-                draft_len: 5,
+                draft_len: 2,
                 // Target: α ≥ 0.7 with aligned draft (EAGLE/Medusa literature)
                 acceptance_rate: 0.7,
                 draft_cost_ratio: 0.05,
                 draft_params_b: 8.0,
+                v_gamma: 1.49,
             },
             interconnect: InterconnectConfig {
                 link_count: 2,
@@ -366,7 +374,7 @@ impl Default for HccConfig {
                 cli_bin: default_cli_bin(),
                 spawn_server: true,
                 rpc_port: 50052,
-                model_path: "/models/glm-5.1.gguf".into(),
+                model_path: "/models/glm-5.3-flash/glm-5.3-flash-q4_0_rocmfp4_strix_lean.gguf".into(),
                 model_alias: default_model_alias(),
                 hip_device: 0,
                 device: default_device(),
@@ -463,6 +471,10 @@ impl HccConfig {
         assert!(
             self.speculative.draft_cost_ratio > 0.0 && self.speculative.draft_cost_ratio < 1.0,
             "draft_cost_ratio c/C must be in (0, 1) (paper: 0.05)"
+        );
+        assert!(
+            self.speculative.v_gamma > 0.0 && self.speculative.v_gamma.is_finite(),
+            "speculative.v_gamma must be > 0 and finite"
         );
         assert!(
             self.interconnect.throughput_gbps > 0.0,

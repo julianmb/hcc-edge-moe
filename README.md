@@ -5,51 +5,53 @@
 ![ROCm](https://img.shields.io/badge/ROCm-7.2.3-green)
 ![Tests](https://img.shields.io/badge/tests-passing-green)
 
-**A Rust feasibility and orchestration project for running oversized MoE models across two ClawRig workstations. The reference workload is a custom GLM-5.1 REAP-50 checkpoint.**
+**A Rust feasibility and orchestration project for running oversized MoE models across two ClawRig workstations. The reference workload is GLM-5.3-Flash (320B total / 18B active parameters, 45 layers, 288 routed experts with top-8 routing, ROCmFP4 quantization).**
 
 ## Purpose
 
 HCC investigates one narrow systems question:
 
-> Can two 128 GB unified-memory workstations make a roughly 161 GB MoE checkpoint practical without a datacenter interconnect?
+> Can two 128 GB unified-memory workstations make a roughly 158 GB frontier MoE checkpoint practical without a datacenter interconnect?
 
 The project is not a replacement for llama.cpp, vLLM, or exo. It uses llama.cpp for real local inference and develops the missing experimental pieces around it: model placement across two nodes, USB4 transport, heterogeneous CPU/iGPU/NPU scheduling, speculative batching, and explicit measurement.
 
-## GLM-5.1 Test Profile
+## GLM-5.3-Flash Test Profile
 
-`configs/glm51-reap50.toml` describes the current capacity experiment:
+`configs/glm53-flash.toml` describes the reference capacity experiment:
 
 | Property | Working value |
 |---|---:|
-| Checkpoint | Custom GLM-5.1 REAP-50 |
-| Total parameters after pruning | ~380B |
-| Active parameters per token | ~40B |
-| Routed experts after pruning | 128 |
-| Quantized checkpoint size | ~161 GB |
+| Checkpoint | GLM-5.3-Flash `Q4_0_ROCMFP4_STRIX_LEAN` |
+| Total parameters | 320B |
+| Active parameters per token | 18B |
+| Transformer layers | 45 (34 KDA linear + 11 DSA sparse MLA) |
+| Routed experts | 288 (top-8 active per token) |
+| Quantized checkpoint size | ~158 GB (~79 GB per node) |
 | Cluster memory | 2 x 128 GB = 256 GB gross |
-| Gross weight headroom | ~95 GB before runtime and KV allocations |
+| Gross weight headroom | ~98 GB before runtime and KV allocations |
 | Sustained bandwidth assumption | 212 GB/s per node |
+| Projected single-node decode | 21.9 tok/s |
 
-REAP removes lower-contribution experts and rewrites the router around the retained set. This profile models a deliberately pruned artifact, not the full 744B GLM-5.1 release. These are checkpoint assumptions until they are replaced by inspected GGUF metadata and end-to-end measurements.
+GLM-5.3-Flash introduces a hybrid attention architecture (34 KDA linear attention layers with $O(1)$ constant state + 11 DSA layers with low-rank MLA) and an integrated MTP head. ROCmFP4 quantization fits the entire 320B model into the 256 GB dual-node memory pool with ~98 GB of headroom, eliminating the need for destructive expert pruning.
 
-Run the capacity and roofline projection without downloading the model:
+Run the capacity and roofline projection without downloading weights:
 
 ```bash
-cargo run --locked -- benchmark --config configs/glm51-reap50.toml
+cargo run --locked -- benchmark --config configs/glm53-flash.toml
 ```
 
-The command labels its output as a **projection**. It does not load GLM-5.1, generate tokens, or validate output quality.
+The command labels its output as a **projection**. It does not load GLM-5.3-Flash, generate tokens, or validate output quality.
 
 ## Current Status
 
 | Layer | Status | Meaning |
 |---|---|---|
 | Single-node execution | Measured | llama.cpp direct inference works on ClawRig; Qwen is the current performance regression workload. |
-| GLM-5.1 REAP-50 capacity | Projected | The 161 GB checkpoint fits within 256 GB gross cluster memory on paper. |
-| Decode roofline | Projected | Computed from configured active-weight traffic and sustained memory bandwidth. |
-| Speculative speedup | Assumed | Calculated from draft length, acceptance rate, and draft cost. Acceptance is not yet measured for this checkpoint. |
+| GLM-5.3-Flash capacity | Projected | The 158 GB checkpoint fits within 256 GB gross cluster memory on paper (~98 GB headroom). |
+| Decode roofline | Projected | 21.9 tok/s baseline computed from 18B active weights read (9.7 GB) and 212 GB/s memory bandwidth. |
+| Speculative speedup | Assumed | Calculated with MoE verification cost factor $v_\gamma$ (e.g., $v_2 \approx 1.49 \rightarrow 1.38\times$). |
 | Dual-node protocol scaffold | Tested | Two processes exchange framed TCP session, prefill, draft, verification, and shutdown messages on localhost. |
-| Dual-node GLM-5.1 inference | Experimental | Physical USB4 execution, model sharding, token equivalence, and target-kernel verification have not yet been demonstrated. |
+| Dual-node GLM-5.3-Flash inference | Experimental | Physical USB4 execution, model sharding, token equivalence, and target-kernel verification have not yet been demonstrated. |
 
 Projected numbers are intentionally not presented as benchmark results.
 
@@ -62,10 +64,10 @@ cargo build --locked --release
 cargo test --locked
 ```
 
-Inspect GLM-5.1 feasibility:
+Inspect GLM-5.3-Flash feasibility:
 
 ```bash
-cargo run --locked -- benchmark --config configs/glm51-reap50.toml
+cargo run --locked -- benchmark --config configs/glm53-flash.toml
 ```
 
 Run the measured single-node regression profile when its GGUF is installed:
@@ -123,7 +125,7 @@ Use llama.cpp directly for normal single-node chat. Use HCC when the model does 
 
 ## Feasibility Gates
 
-A credible GLM-5.1 result requires all of these:
+A credible GLM-5.3-Flash result requires all of these:
 
 1. Inspect actual sharded GGUF metadata and measured resident memory.
 2. Load complementary model partitions across both nodes without duplicate full-model residency.

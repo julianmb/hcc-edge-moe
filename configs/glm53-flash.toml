@@ -1,8 +1,5 @@
-# Heterogeneous Compute Cascade (HCC) — Configuration
-# Ref: "Heterogeneous Compute Cascades" (Beltran, 2026)
-#
-# Target: GLM-5.3-Flash (320B MoE, 18B active) on 2x Strix Halo nodes over USB4.
-# Node 0 / Node 1: Distributed MoE pipeline over dual USB4 (45 Gbps).
+# GLM-5.3-Flash configuration profile for HCC dual-node Strix Halo cluster.
+# Architecture: 320B total, 18B active, 45 layers (34 KDA + 11 DSA), 288 routed experts (top-8 active).
 # Quantization: Q4_0_ROCMFP4_STRIX_LEAN (~4.3 bpw, ~158 GB checkpoint).
 
 [cluster]

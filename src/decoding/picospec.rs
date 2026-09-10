@@ -9,9 +9,18 @@ use std::collections::VecDeque;
 pub struct PicoSpecRejection;
 
 impl PicoSpecRejection {
-    pub fn compress_draft(drafts: &[DraftToken], _top_k: usize) -> Vec<u8> {
-        let mut compressed = Vec::with_capacity(drafts.len() * 8);
-        for d in drafts {
+    pub fn compress_draft(drafts: &[DraftToken], top_k: usize) -> Vec<u8> {
+        let mut selected: Vec<&DraftToken> = drafts.iter().collect();
+        if top_k > 0 && selected.len() > top_k {
+            selected.sort_by(|a, b| {
+                b.probability
+                    .partial_cmp(&a.probability)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            selected.truncate(top_k);
+        }
+        let mut compressed = Vec::with_capacity(selected.len() * 8);
+        for d in selected {
             compressed.extend_from_slice(&d.token_id.to_le_bytes());
             compressed.extend_from_slice(&(d.probability as f32).to_le_bytes());
         }
@@ -71,6 +80,22 @@ mod tests {
         }];
         let compressed = PicoSpecRejection::compress_draft(&drafts, 8);
         assert_eq!(compressed.len(), 8);
+    }
+
+    #[test]
+    fn test_compress_draft_honors_top_k() {
+        let drafts = vec![
+            DraftToken { token_id: 1, probability: 0.1, kv_state: vec![] },
+            DraftToken { token_id: 2, probability: 0.7, kv_state: vec![] },
+            DraftToken { token_id: 3, probability: 0.4, kv_state: vec![] },
+        ];
+        // top_k = 2 should select tokens 2 and 3 (0.7 and 0.4)
+        let compressed = PicoSpecRejection::compress_draft(&drafts, 2);
+        assert_eq!(compressed.len(), 16);
+        let id1 = u32::from_le_bytes(compressed[0..4].try_into().unwrap());
+        let id2 = u32::from_le_bytes(compressed[8..12].try_into().unwrap());
+        assert_eq!(id1, 2);
+        assert_eq!(id2, 3);
     }
 
     #[test]

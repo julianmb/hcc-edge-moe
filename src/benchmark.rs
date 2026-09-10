@@ -73,10 +73,11 @@ impl BenchmarkRunner {
         // 4. Speculative speedup
         let has_draft = cfg.speculative.draft_params_b > 0.0;
         let (ek, speedup) = if has_draft {
-            let eng = SpeculativeEngine::new(
+            let eng = SpeculativeEngine::with_v_gamma(
                 cfg.speculative.draft_len,
                 cfg.speculative.acceptance_rate,
                 cfg.speculative.draft_cost_ratio,
+                cfg.speculative.v_gamma,
             );
             (eng.expected_accepted(), eng.speedup())
         } else {
@@ -94,6 +95,7 @@ impl BenchmarkRunner {
                 "Acceptance rate α:   {:.2}",
                 cfg.speculative.acceptance_rate
             );
+            println!("Verification v_γ:    {:.2}×", cfg.speculative.v_gamma);
             println!("E[k] (Eq. 5):        {:.3}", ek);
             println!("Speedup S (Eq. 6):   {:.3}×", speedup);
         } else {

@@ -1,22 +1,58 @@
 /// Speculative decoding engine — implements the mathematics from §7.
 ///
-/// Core speedup equations from the paper:
-/// ```
+/// Core speedup equations:
+/// ```text
 /// E[k] = (1 - α^{γ+1}) / (1 - α)           (Eq. 5)
-/// S = E[k] / (1 + γ · c/C)                  (Eq. 6)
+/// S = E[k] / (v_γ + γ · c/C)               (Eq. 6, where v_γ accounts for MoE active-expert scaling)
 /// ```
 pub struct SpeculativeEngine {
     pub draft_len: usize,
     pub acceptance_rate: f64,
     pub draft_cost_ratio: f64,
+    pub v_gamma: f64,
 }
 
 impl SpeculativeEngine {
+    /// Create engine with default v_γ = 1.0 (dense baseline / paper Eq. 6).
     pub fn new(draft_len: usize, acceptance_rate: f64, draft_cost_ratio: f64) -> Self {
         Self {
             draft_len,
             acceptance_rate,
             draft_cost_ratio,
+            v_gamma: 1.0,
+        }
+    }
+
+    /// Create engine with explicit verification cost factor v_γ.
+    pub fn with_v_gamma(
+        draft_len: usize,
+        acceptance_rate: f64,
+        draft_cost_ratio: f64,
+        v_gamma: f64,
+    ) -> Self {
+        Self {
+            draft_len,
+            acceptance_rate,
+            draft_cost_ratio,
+            v_gamma: v_gamma.max(0.1),
+        }
+    }
+
+    /// Empirical and analytical active-expert scaling factor v_γ for MoE architectures.
+    /// For dense models v_γ = 1.0. For MoE models (e.g. GLM-5.3-Flash, E=288, K=8),
+    /// verifying γ draft tokens activates a larger union of experts across layers.
+    pub fn moe_v_gamma(gamma: usize) -> f64 {
+        match gamma {
+            0 => 0.0,
+            1 => 1.0,
+            2 => 1.49,
+            3 => 1.98,
+            4 => 2.44,
+            5 => 2.87,
+            g => {
+                let indep = (288.0 / 8.0) * (1.0 - (1.0 - 8.0 / 288.0_f64).powi(g as i32));
+                1.0 + 0.75 * (indep - 1.0)
+            }
         }
     }
 
@@ -33,20 +69,22 @@ impl SpeculativeEngine {
         }
     }
 
-    /// Theoretical speedup of the speculative pipeline — Eq. 6.
+    /// Theoretical speedup of the speculative pipeline:
     ///
-    /// S = E[k] / (1 + γ · c/C)
+    /// S = E[k] / (v_γ + γ · c/C)
     pub fn speedup(&self) -> f64 {
+        self.speedup_with_v_gamma(self.v_gamma)
+    }
+
+    /// Speedup evaluated at an arbitrary verification overhead factor v_γ.
+    pub fn speedup_with_v_gamma(&self, v_gamma: f64) -> f64 {
         let ek = self.expected_accepted();
         let gamma = self.draft_len as f64;
-        let overhead = (1.0 + gamma * self.draft_cost_ratio.max(0.0)).max(1e-9);
+        let overhead = (v_gamma.max(0.001) + gamma * self.draft_cost_ratio.max(0.0)).max(1e-9);
         ek / overhead
     }
 
     /// Effective decode throughput multiplier under this spec config.
-    ///
-    /// Paper §10.2: T_HCC = 11.1 × 2.35 ≈ 26.1 tok/s
-    /// with multiplier = 1 − 0.7^6 / (1 − 0.7)(1 + 5 × 0.05) ≈ 2.35
     pub fn throughput_multiplier(&self) -> f64 {
         self.speedup()
     }
@@ -88,7 +126,12 @@ impl SpeculativeEngine {
             } else {
                 (g + 1) as f64
             };
-            let s = ek / (1.0 + g as f64 * cost);
+            let v_g = if (self.v_gamma - 1.0).abs() < 1e-6 {
+                1.0
+            } else {
+                Self::moe_v_gamma(g)
+            };
+            let s = ek / (v_g + g as f64 * cost);
             if s > best_s {
                 best_s = s;
                 best = g;
@@ -152,5 +195,31 @@ mod tests {
         let eng = SpeculativeEngine::new(5, 1.0, 0.05);
         assert!((eng.expected_accepted() - 6.0).abs() < 1e-9);
         assert!(eng.speedup().is_finite());
+    }
+
+    #[test]
+    fn test_moe_v_gamma_scaling() {
+        assert_eq!(SpeculativeEngine::moe_v_gamma(1), 1.0);
+        assert_eq!(SpeculativeEngine::moe_v_gamma(2), 1.49);
+        assert_eq!(SpeculativeEngine::moe_v_gamma(3), 1.98);
+        assert_eq!(SpeculativeEngine::moe_v_gamma(5), 2.87);
+    }
+
+    #[test]
+    fn test_speedup_with_moe_v_gamma() {
+        // With gamma=2, alpha=0.7: E[k] = (1 - 0.7^3) / 0.3 = 0.657 / 0.3 = 2.19
+        // v_2 = 1.49, c/C = 0.05
+        // S = 2.19 / (1.49 + 2 * 0.05) = 2.19 / 1.59 ≈ 1.377
+        let eng = SpeculativeEngine::with_v_gamma(2, 0.7, 0.05, 1.49);
+        let s = eng.speedup();
+        assert!((s - 1.377).abs() < 0.02, "S={s}");
+        assert!(s > 1.0, "bounded gamma=2 MoE spec decode yields positive speedup");
+
+        // With gamma=5, alpha=0.7, v_5 = 2.87:
+        // E[k] = 2.941
+        // S = 2.941 / (2.87 + 5 * 0.05) = 2.941 / 3.12 ≈ 0.942 (< 1.0, explaining why large gamma fails in MoE!)
+        let eng_large = SpeculativeEngine::with_v_gamma(5, 0.7, 0.05, 2.87);
+        let s_large = eng_large.speedup();
+        assert!(s_large < 1.0, "large gamma MoE verification penalty leads to slowdown unless alpha is very high");
     }
 }
